@@ -8738,7 +8738,7 @@ code{font-size:.75rem;background:var(--scale-100);padding:.16em .45em;border-rad
 }
 
 .barcode-grid-price{
-  grid-template-columns:1fr 1fr;
+  grid-template-columns:repeat(3,minmax(0,1fr));
   margin-bottom:.85rem;
 }
 
@@ -8845,6 +8845,12 @@ code{font-size:.75rem;background:var(--scale-100);padding:.16em .45em;border-rad
 
 .barcode-card-actions .btn{
   min-height:36px;
+}
+
+@media (min-width: 769px) and (max-width: 1024px){
+  .barcode-grid-price{
+    grid-template-columns:repeat(2,minmax(0,1fr));
+  }
 }
 
 @media (max-width: 768px){
@@ -9101,6 +9107,17 @@ h6,
 .content-inner .table-wrapper-scroll table tbody,
 .content-inner .sales-report-table tfoot {
   background: var(--card-bg) !important;
+}
+
+.sales-entry-table .bf-row-inactive{
+  cursor:pointer;
+  outline:none;
+}
+
+.sales-entry-table .bf-row-inactive:hover,
+.sales-entry-table .bf-row-inactive:focus{
+  box-shadow:inset 0 0 0 1px rgba(138,81,37,.45);
+  background:rgba(138,81,37,.035) !important;
 }
 
 .content-inner .price-code-table tbody td,

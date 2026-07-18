@@ -565,7 +565,7 @@ const BarcodeGenerator = () => {
               </div>
             </div>
 
-            <div className="barcode-row">
+            <div className="barcode-grid barcode-grid-price">
               <div>
                 <label className="pf-label" htmlFor="barcode-price">
                   Price Code <Req />
@@ -592,9 +592,6 @@ const BarcodeGenerator = () => {
                 />
                 {errors.Product_Price_Code_Id && <div className="pf-field-error">{errors.Product_Price_Code_Id}</div>}
               </div>
-            </div>
-
-            <div className="barcode-grid barcode-grid-price">
               <div>
                 <label className="pf-label" htmlFor="barcode-selling">
                   Selling Price <Req />

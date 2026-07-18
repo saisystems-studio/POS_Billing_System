@@ -800,6 +800,7 @@ const EMPTY_LINE = () => ({
   DiscountPercent: '',
   IsGSTApplied: false,
   GSTPercent: '',
+  _inactive: false,
 });
 
 /* Effective rate = changeableRate if set & valid, else rate */
@@ -965,9 +966,17 @@ const BillingForm = () => {
 
   const makeReadyBlankRow = useCallback(() => {
     const blank = EMPTY_LINE();
+    blank._inactive = isEdit;
     if (isFixed && priceConfig?.FixedPriceCodeID) blank.PriceCodeID = priceConfig.FixedPriceCodeID;
     return blank;
-  }, [isFixed, priceConfig]);
+  }, [isEdit, isFixed, priceConfig]);
+
+  const activateBlankRow = useCallback((rowIdx) => {
+    setRows(prev => prev.map((row, idx) => (
+      idx === rowIdx && row._inactive ? { ...row, _inactive: false } : row
+    )));
+    setTimeout(() => focusCell(rowIdx, COL_PRODUCT), 40);
+  }, [focusCell]);
 
   const keepSingleReadyBlankRow = useCallback((list) => {
     const activeRows = list.filter(row => !isBlankRow(row));
@@ -1306,6 +1315,7 @@ const BillingForm = () => {
           GSTPercent: line.GSTPercent ? String(line.GSTPercent) : '',
         }));
         const placeholder = EMPTY_LINE();
+        placeholder._inactive = true;
         if ((bill.PriceCodeType || 'Random') === 'Fixed' && bill.DefaultPriceCodeID) {
           placeholder.PriceCodeID = bill.DefaultPriceCodeID;
         }
@@ -1553,6 +1563,12 @@ const BillingForm = () => {
       return { errors: { _: 'Add at least one product with a valid quantity.' }, payload: null };
     }
 
+    rows.forEach((row, idx) => {
+      if (!isBlankRow(row) && !isRowComplete(row)) {
+        errors[idx] = 'Complete Product, Qty, Price Code and Rate, or clear this row.';
+      }
+    });
+
     completedRows.forEach((r, i) => {
       const origIdx = rows.indexOf(r);
       if (!r.PriceCodeID) {
@@ -1639,6 +1655,7 @@ const BillingForm = () => {
       saveInFlightRef.current = false;
       setSaving(false);
     }
+
   }, [buildPayload, isEdit, id, navigate, toast, focusCell, saving, isReadOnly]);
 
   useEffect(() => {
@@ -1880,7 +1897,18 @@ const BillingForm = () => {
                   const isFinalBlankRow = idx === rows.length - 1 && isBlankRow(row);
 
                   return (
-                    <tr key={row._key} className={`bf-row${rowErr ? ' bf-row-error' : ''}`}
+                    <tr key={row._key} className={`bf-row${rowErr ? ' bf-row-error' : ''}${row._inactive ? ' bf-row-inactive' : ''}`}
+                      tabIndex={row._inactive ? 0 : undefined}
+                      aria-label={row._inactive ? 'Empty billing row. Press Enter or click to add an item.' : undefined}
+                      onClick={() => { if (row._inactive) activateBlankRow(idx); }}
+                      onFocus={e => { if (row._inactive && e.target === e.currentTarget) activateBlankRow(idx); }}
+                      onKeyDown={e => {
+                        if (row._inactive && e.key === 'Enter') {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          activateBlankRow(idx);
+                        }
+                      }}
                       style={{background: idx % 2 === 0 ? 'transparent' : ALT_ROW}}>
 
                       {/* # */}
@@ -1895,7 +1923,7 @@ const BillingForm = () => {
                           products={products}
                           value={row.ProductID}
                           onChange={pid => handleProductChange(idx, pid)}
-                          disabled={saving || isReadOnly}
+                          disabled={saving || isReadOnly || row._inactive}
                           inputRef={el => setCellRef(idx, COL_PRODUCT, el)}
                           onNext={() => {
                             navigateCell(idx, COL_PRODUCT, 1);
@@ -2033,7 +2061,7 @@ const BillingForm = () => {
 
                       {/* Remove */}
                       <td className="bf-td" style={{textAlign:'center',paddingLeft:0,paddingRight:4}}>
-                        {!isReadOnly && <button
+                        {!isReadOnly && !row._inactive && <button
                           ref={el => { rowCloseRefs.current[idx] = el; }}
                           type="button"
                           className="remove-btn"

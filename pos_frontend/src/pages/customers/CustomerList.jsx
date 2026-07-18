@@ -657,7 +657,16 @@ const CustomerList = () => {
                           style={{cursor:'pointer',position:'relative'}}
                           onMouseEnter={(e) => { e.currentTarget.closest('.list-keyboard-zone')?.focus(); setHoveredCustomerId(c.id); setSelectedCustomerId(c.id); setDismissedActionCustomerId(null); }}
                           onMouseLeave={() => setHoveredCustomerId(prev => prev === c.id ? null : prev)}
-                          onClick={() => selectCustomer(c.id)}>
+                          onClick={(e) => {
+                            if (isInteractiveTarget(e.target)) return;
+                            selectCustomer(c.id);
+                          }}
+                          onDoubleClick={(e) => {
+                            if (isInteractiveTarget(e.target)) return;
+                            selectCustomer(c.id);
+                            if (isAdmin) navigate(`/customers/${c.id}`);
+                            else setViewMore(c);
+                          }}>
                           {isAdmin && (
                             <td className="row-cb-cell" onClick={e=>{e.stopPropagation();toggleSelect(c.id);}}>
                               <input type="checkbox" className="row-cb"
