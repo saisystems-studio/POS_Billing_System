@@ -17,6 +17,7 @@ import re
 import zipfile
 import xml.etree.ElementTree as ET
 from .models import ProductGroup, Product, ProductPriceDetails, PriceCodeList, PRICE_NAME_CHOICES, Unit, ProductImportHistory
+from .seed import DEFAULT_PRICE_CODES, seed_price_codes
 from .serializers import (
     ProductGroupSerializer, ProductGroupDropdownSerializer, ProductSerializer,
     ProductListSerializer, ProductPriceDetailsSerializer, ProductWithPricesCreateSerializer,
@@ -126,10 +127,10 @@ class ProductListCreateView(generics.ListCreateAPIView):
             .prefetch_related(Prefetch('prices', queryset=price_rows))
             .all()
         )
-        is_active = self.request.query_params.get('is_active')
+        is_active = self.request.query_params.get('status', self.request.query_params.get('is_active'))
         if is_active is not None:
             qs = qs.filter(IsActive=is_active.lower() == 'true')
-        group_id = self.request.query_params.get('group_id')
+        group_id = self.request.query_params.get('group', self.request.query_params.get('group_id'))
         if group_id:
             qs = qs.filter(GroupId=group_id)
         return qs
@@ -377,8 +378,9 @@ class AllProductsForPricePageView(generics.ListAPIView):
     ordering           = ['id']
 
     def get_queryset(self):
+        group_id = self.request.query_params.get('group', self.request.query_params.get('group_id'))
         active_prices = ProductPriceDetails.objects.select_related('PriceCodeID').filter(PriceCodeID__IsActive=True)
-        return (
+        qs = (
             Product.objects
             .filter(IsActive=True)
             .select_related('GroupId', 'UnitId')
@@ -390,6 +392,9 @@ class AllProductsForPricePageView(generics.ListAPIView):
             .prefetch_related(Prefetch('prices', queryset=active_prices))
             .order_by('id')
         )
+        if group_id:
+            qs = qs.filter(GroupId=group_id)
+        return qs
 
     def filter_queryset(self, queryset):
         qs = super().filter_queryset(queryset)
@@ -406,7 +411,6 @@ class AllProductsForPricePageView(generics.ListAPIView):
 # â”€â”€â”€ Product Excel import/template â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 COMMON_IMPORT_HEADERS = [
-    'S.No',
     'Product Group',
     'Particulars (English)',
     'Particulars (Tamil)',
@@ -425,7 +429,15 @@ COMMON_PRICE_COLUMNS = [
 ]
 DEFAULT_IMPORT_UNIT_CODE = 'PCS'
 DEFAULT_IMPORT_UNIT_NAME = 'Pieces'
+DEFAULT_IMPORT_GROUP_NAME = 'Primary'
 INVALID_TEMPLATE_MESSAGE = 'Invalid Excel template. Please download and use the latest template.'
+IMPORT_COL_GROUP = 0
+IMPORT_COL_ENGLISH = 1
+IMPORT_COL_TAMIL = 2
+IMPORT_FIRST_PRICE_COL = 3
+IMPORT_HEADER_ALIASES = {
+    'Product Name': 'Particulars (English)',
+}
 
 
 def _col_name(index):
@@ -557,7 +569,7 @@ def _find_default_import_unit(user):
 
 def _build_error_xlsx(errors_by_row):
     rows = [COMMON_IMPORT_HEADERS + ['Error Reason']]
-    for row, reason in errors_by_row:
+    for _, row, reason in errors_by_row:
         rows.append(row + [reason])
     out = BytesIO()
     with zipfile.ZipFile(out, 'w', zipfile.ZIP_DEFLATED) as z:
@@ -583,36 +595,171 @@ def _build_error_xlsx(errors_by_row):
     return out.getvalue()
 
 
-def _validation_response(errors_by_row):
+def _int_count(value):
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _normalize_import_error_rows(value):
+    if isinstance(value, list):
+        return value
+    if value in (None, ''):
+        return []
+    if isinstance(value, str):
+        return [{'reason': value}]
+    if isinstance(value, dict):
+        if any(key in value for key in ('row', 'group', 'product', 'reason', 'error', 'detail', 'message')):
+            return [value]
+        rows = []
+        for field, messages in value.items():
+            if isinstance(messages, list):
+                rows.extend({'field': field, 'reason': str(message)} for message in messages)
+            elif messages not in (None, ''):
+                rows.append({'field': field, 'reason': str(messages)})
+        return rows
+    return [{'reason': str(value)}]
+
+
+def _import_response_payload(
+    *,
+    status_value,
+    message,
+    file_name='',
+    total_rows=0,
+    imported_count=0,
+    duplicate_count=0,
+    rejected_count=0,
+    rejected_rows=None,
+    summary=None,
+    extra=None,
+):
+    canonical_rejected_rows = _normalize_import_error_rows(rejected_rows)
+    canonical_errors = canonical_rejected_rows
+    payload = {
+        'status': status_value,
+        'success': status_value == 'success',
+        'message': message,
+        'file_name': file_name or '',
+        'total_rows': _int_count(total_rows),
+        'imported_count': _int_count(imported_count),
+        'duplicate_count': _int_count(duplicate_count),
+        'rejected_count': _int_count(rejected_count),
+        'rejected_rows': canonical_rejected_rows,
+        'errors': canonical_errors,
+    }
+    if summary:
+        payload['summary'] = summary
+        payload.update(summary)
+    if extra:
+        if 'errors' in extra:
+            canonical_errors = _normalize_import_error_rows(extra.get('errors'))
+        payload.update(extra)
+    payload['total_rows'] = _int_count(total_rows)
+    payload['imported_count'] = _int_count(imported_count)
+    payload['duplicate_count'] = _int_count(duplicate_count)
+    payload['rejected_count'] = _int_count(rejected_count)
+    payload['rejected_rows'] = canonical_rejected_rows
+    payload['errors'] = canonical_errors
+    payload.setdefault('database_duplicate_count', _int_count(payload.get('duplicate_existing_database')))
+    payload.setdefault('file_duplicate_count', _int_count(payload.get('duplicate_inside_file')))
+    return payload
+
+
+def _import_summary(
+    *,
+    total_rows,
+    imported_count,
+    duplicate_count,
+    rejected_count,
+    groups_created=0,
+    existing_group_count=0,
+    products_created=0,
+    products_restored=0,
+    duplicate_existing_database=0,
+    duplicate_inside_file=0,
+    inactive_existing_products=0,
+    prices_created=0,
+    prices_updated=0,
+    empty_price_values_skipped=0,
+):
+    price_values_imported = prices_created + prices_updated
+    not_imported = duplicate_count + rejected_count
+    return {
+        'total_rows': total_rows,
+        'imported_rows': imported_count,
+        'imported_count': imported_count,
+        'rejected_rows': rejected_count,
+        'rejected_count': rejected_count,
+        'invalid_rows_rejected': rejected_count,
+        'duplicate_rows': duplicate_count,
+        'duplicate_count': duplicate_count,
+        'not_imported': not_imported,
+        'groups_created': groups_created,
+        'new_groups_created': groups_created,
+        'existing_groups_reused': existing_group_count,
+        'products_created': products_created,
+        'products_updated': 0,
+        'products_restored': products_restored,
+        'reactivated_products': products_restored,
+        'duplicate_existing_database': duplicate_existing_database,
+        'database_duplicate_count': duplicate_existing_database,
+        'existing_duplicates': duplicate_existing_database,
+        'duplicate_inside_file': duplicate_inside_file,
+        'file_duplicate_count': duplicate_inside_file,
+        'duplicates_inside_file': duplicate_inside_file,
+        'inactive_existing_products': inactive_existing_products,
+        'existing_products_skipped': duplicate_count,
+        'products_skipped_as_duplicates': duplicate_count,
+        'prices_created': prices_created,
+        'prices_updated': prices_updated,
+        'prices_created_or_updated': price_values_imported,
+        'price_values_imported': price_values_imported,
+        'empty_price_values_skipped': empty_price_values_skipped,
+        'price_fields_skipped': empty_price_values_skipped,
+        'rows_skipped': duplicate_count,
+        'rows_failed': rejected_count,
+    }
+
+
+def _validation_response(errors_by_row, file_name='', total_rows=None):
     error_xlsx = _build_error_xlsx(errors_by_row)
-    return Response({
-        'success': False,
-        'message': 'Excel Import Rejected',
-        'detail': 'Import validation failed.',
-        'errors': [{'row': row[0] or idx + 2, 'error': reason} for idx, (row, reason) in enumerate(errors_by_row)],
-        'rejected_rows': [{'row': row[0] or idx + 2, 'reason': reason} for idx, (row, reason) in enumerate(errors_by_row)],
-        'error_file_name': 'Product_Import_Errors.xlsx',
-        'error_file_base64': base64.b64encode(error_xlsx).decode('ascii'),
-        'summary': {
-            'total_rows': len(errors_by_row),
-            'imported_rows': 0,
-            'rejected_rows': len(errors_by_row),
-            'duplicate_rows': len(errors_by_row),
-            'groups_created': 0,
-            'new_groups_created': 0,
-            'existing_groups_reused': 0,
-            'products_created': 0,
-            'products_updated': 0,
-            'products_restored': 0,
-            'existing_products_skipped': 0,
-            'products_skipped_as_duplicates': 0,
-            'prices_created': 0,
-            'prices_updated': 0,
-            'prices_created_or_updated': 0,
-            'rows_skipped': 0,
-            'rows_failed': len(errors_by_row),
+    rejected_rows = [
+        {'row': excel_row, 'group': row[IMPORT_COL_GROUP], 'product': row[IMPORT_COL_ENGLISH], 'reason': reason}
+        for excel_row, row, reason in errors_by_row
+    ]
+    rejected_count = len(errors_by_row)
+    total = total_rows if total_rows is not None else rejected_count
+    summary = _import_summary(
+        total_rows=total,
+        imported_count=0,
+        duplicate_count=0,
+        rejected_count=rejected_count,
+        duplicate_existing_database=0,
+        duplicate_inside_file=0,
+        inactive_existing_products=0,
+    )
+    return Response(_import_response_payload(
+        status_value='error',
+        message='Excel Import Rejected',
+        file_name=file_name,
+        total_rows=total,
+        imported_count=0,
+        duplicate_count=0,
+        rejected_count=rejected_count,
+        rejected_rows=rejected_rows,
+        summary=summary,
+        extra={
+            'detail': 'Import validation failed.',
+            'errors': [
+                {**row, 'error': row['reason']}
+                for row in rejected_rows
+            ],
+            'error_file_name': 'Product_Import_Errors.xlsx',
+            'error_file_base64': base64.b64encode(error_xlsx).decode('ascii'),
         },
-    }, status=status.HTTP_400_BAD_REQUEST)
+    ), status=status.HTTP_400_BAD_REQUEST)
 
 
 def _load_common_import_rows(upload):
@@ -620,7 +767,10 @@ def _load_common_import_rows(upload):
     rows = sheets.get('Products')
     if not rows:
         raise ValueError(INVALID_TEMPLATE_MESSAGE)
-    header = [(cell or '').replace('\ufeff', '').strip() for cell in rows[0]]
+    header = [
+        IMPORT_HEADER_ALIASES.get((cell or '').replace('\ufeff', '').strip(), (cell or '').replace('\ufeff', '').strip())
+        for cell in rows[0]
+    ]
     if header != COMMON_IMPORT_HEADERS:
         raise ValueError(INVALID_TEMPLATE_MESSAGE)
     data_rows = []
@@ -639,45 +789,61 @@ def _prepare_common_import(upload):
     errors_by_row = []
     prepared = []
     seen_product_keys = set()
+    skipped_duplicate_rows = []
+    empty_price_values_skipped = 0
 
     for excel_row, row in data_rows:
         padded = [_clean_text(cell) for cell in row]
         row_errors = []
-        group_name = padded[1]
-        english_name = padded[2]
-        tamil_name = padded[3]
+        group_was_defaulted = not padded[IMPORT_COL_GROUP]
+        group_name = padded[IMPORT_COL_GROUP] or DEFAULT_IMPORT_GROUP_NAME
+        padded[IMPORT_COL_GROUP] = DEFAULT_IMPORT_GROUP_NAME if group_was_defaulted else group_name
+        group_name = padded[IMPORT_COL_GROUP]
+        english_name = padded[IMPORT_COL_ENGLISH]
+        tamil_name = padded[IMPORT_COL_TAMIL]
         group_key = _normalize_text(group_name)
         product_key = _normalize_text(english_name)
 
-        if not group_name:
-            row_errors.append('Missing Product Group.')
         if not english_name:
-            row_errors.append('Missing Particulars (English).')
+            row_errors.append('Particulars (English) is required.')
+
         duplicate_key = (group_key, product_key)
+        is_duplicate_in_file = False
         if group_key and product_key:
             if duplicate_key in seen_product_keys:
-                row_errors.append('Duplicate Product Group and Product Name inside this Excel file.')
+                skipped_duplicate_rows.append({
+                    'row': excel_row,
+                    'group': group_name,
+                    'product': english_name,
+                    'reason': 'Duplicate product inside current Excel file',
+                    'duplicate_type': 'inside_file',
+                })
+                continue
             else:
-                seen_product_keys.add(duplicate_key)
+                is_duplicate_in_file = False
 
         prices = {}
-        for col_idx, (header, code) in enumerate(COMMON_PRICE_COLUMNS, 4):
+        for col_idx, (header, code) in enumerate(COMMON_PRICE_COLUMNS, IMPORT_FIRST_PRICE_COL):
             try:
                 prices[code] = _parse_import_price(padded[col_idx])
             except ValueError as exc:
                 reason = str(exc)
-                if reason == 'negative':
-                    row_errors.append(f'{header} cannot be negative.')
-                else:
-                    row_errors.append(f'{header} must be numeric.')
+                row_errors.append(f'Invalid value in {header}.')
+                prices[code] = None
+            else:
+                if padded[col_idx] == '':
+                    empty_price_values_skipped += 1
 
         if row_errors:
-            errors_by_row.append((padded, ' '.join(row_errors)))
+            errors_by_row.append((excel_row, padded, ' '.join(row_errors)))
             continue
+        if group_key and product_key and not is_duplicate_in_file:
+            seen_product_keys.add(duplicate_key)
 
         prepared.append({
             'excel_row': excel_row,
             'group_name': group_name,
+            'group_was_defaulted': group_was_defaulted,
             'group_key': group_key,
             'english_name': english_name,
             'product_key': product_key,
@@ -695,56 +861,113 @@ def _prepare_common_import(upload):
         })
     payload = json.dumps(sorted(hash_rows, key=lambda r: (r['group'], r['product'])), separators=(',', ':'), sort_keys=True)
     data_hash = hashlib.sha256(payload.encode('utf-8')).hexdigest()
-    return prepared, errors_by_row, data_hash
+    return {
+        'prepared': prepared,
+        'errors_by_row': errors_by_row,
+        'data_hash': data_hash,
+        'skipped_duplicate_rows': skipped_duplicate_rows,
+        'empty_price_values_skipped': empty_price_values_skipped,
+        'total_rows': len(data_rows),
+    }
 
 
 def _run_common_product_import(upload, user, imported_page):
-    prepared, errors_by_row, data_hash = _prepare_common_import(upload)
-    if errors_by_row:
-        return _validation_response(errors_by_row)
+    prepared_data = _prepare_common_import(upload)
+    prepared = prepared_data['prepared']
+    errors_by_row = prepared_data['errors_by_row']
+    data_hash = prepared_data['data_hash']
+    skipped_duplicate_rows = prepared_data['skipped_duplicate_rows']
+    empty_price_values_skipped = prepared_data['empty_price_values_skipped']
+    total_rows = prepared_data['total_rows']
+    if total_rows == 0:
+        return _validation_response(
+            [(1, [''] * len(COMMON_IMPORT_HEADERS), 'Excel file is empty.')],
+            file_name=upload.name,
+            total_rows=0,
+        )
+    if errors_by_row and not prepared and not skipped_duplicate_rows:
+        return _validation_response(errors_by_row, file_name=upload.name, total_rows=total_rows)
 
+    required_price_codes = {row['PriceCodeName'] for row in DEFAULT_PRICE_CODES}
     price_codes = {pc.PriceCodeName.casefold(): pc for pc in PriceCodeList.objects.filter(IsActive=True)}
-    missing_codes = [code for _, code in COMMON_PRICE_COLUMNS if code.casefold() not in price_codes]
+    missing_codes = [code for code in sorted(required_price_codes) if code.casefold() not in price_codes]
+    if missing_codes:
+        seed_price_codes(user=user)
+        price_codes = {pc.PriceCodeName.casefold(): pc for pc in PriceCodeList.objects.filter(IsActive=True)}
+        missing_codes = [code for code in sorted(required_price_codes) if code.casefold() not in price_codes]
     if missing_codes:
         error_row = [''] * len(COMMON_IMPORT_HEADERS)
-        error_row[0] = '-'
-        return _validation_response([(error_row, f'Missing price-code master records: {", ".join(missing_codes)}.')])
+        return _validation_response(
+            [(1, error_row, f'Missing price-code master records: {", ".join(missing_codes)}.')],
+            file_name=upload.name,
+            total_rows=total_rows,
+        )
 
     groups_created = 0
-    new_group_keys = set()
     existing_group_keys_reused = set()
     products_created = 0
     products_restored = 0
     products_skipped_as_duplicates = 0
+    inactive_existing_products = 0
     prices_created = 0
     prices_updated = 0
-    skipped_rows = []
+    skipped_rows = list(skipped_duplicate_rows)
 
     with transaction.atomic():
         list(ProductImportHistory.objects.select_for_update().filter(FileDataHash=data_hash))
 
         default_unit = _find_default_import_unit(user)
-        groups = {_normalize_text(g.GroupName): g for g in ProductGroup.objects.select_for_update().all()}
-        products = {}
-        for product in Product.objects.select_related('GroupId').select_for_update().all():
-            if product.GroupId:
-                products[(_normalize_text(product.GroupId.GroupName), _normalize_text(product.ProductName))] = product
-
+        group_keys_needed = {item['group_key'] for item in prepared}
+        groups = {
+            _normalize_text(g.GroupName): g
+            for g in ProductGroup.objects.select_for_update().all()
+        }
+        missing_group_items = []
+        missing_group_keys = set()
         for item in prepared:
-            group = groups.get(item['group_key'])
-            if not group:
-                group = ProductGroup.objects.create(
+            if item['group_key'] not in groups and item['group_key'] not in missing_group_keys:
+                missing_group_keys.add(item['group_key'])
+                missing_group_items.append(item)
+        if missing_group_items:
+            ProductGroup.objects.bulk_create([
+                ProductGroup(
                     GroupName=item['group_name'],
                     HSNCode='0000',
                     GSTPercent=0,
                     IsActive=True,
                     CreatedBy=user,
                 )
-                groups[item['group_key']] = group
-                new_group_keys.add(item['group_key'])
-                groups_created += 1
-            elif item['group_key'] not in new_group_keys:
-                existing_group_keys_reused.add(item['group_key'])
+                for item in missing_group_items
+            ])
+            groups_created = len(missing_group_items)
+            groups = {
+                _normalize_text(g.GroupName): g
+                for g in ProductGroup.objects.select_for_update().all()
+            }
+        existing_group_keys_reused = group_keys_needed - missing_group_keys
+
+        products = {}
+        for product in Product.objects.select_related('GroupId').select_for_update().filter(
+            GroupId_id__in=[group.id for group in groups.values()]
+        ):
+            if product.GroupId:
+                products[(_normalize_text(product.GroupId.GroupName), _normalize_text(product.ProductName))] = product
+
+        products_to_create = []
+        restored_products = []
+        products_to_update = []
+        product_items_to_price = []
+        temp_code_prefix = f"IMP_{data_hash[:12]}_"
+
+        for item in prepared:
+            group = groups.get(item['group_key'])
+            if not group:
+                error_row = [''] * len(COMMON_IMPORT_HEADERS)
+                return _validation_response(
+                    [(item['excel_row'], error_row, f'Missing product group: {item["group_name"]}.')],
+                    file_name=upload.name,
+                    total_rows=total_rows,
+                )
 
             product_lookup = (item['group_key'], item['product_key'])
             product = products.get(product_lookup)
@@ -755,35 +978,33 @@ def _run_common_product_import(upload, user, imported_page):
                         'row': item['excel_row'],
                         'group': item['group_name'],
                         'product': item['english_name'],
-                        'reason': 'Product already exists under this Product Group. Duplicate row skipped.',
+                        'reason': 'Duplicate product',
+                        'duplicate_type': 'existing_database',
                     })
                     continue
 
-                update_fields = []
                 if not product.IsActive:
                     product.IsActive = True
-                    update_fields.append('IsActive')
                     products_restored += 1
+                    inactive_existing_products += 1
                 if product.GroupId_id != group.id:
                     product.GroupId = group
-                    update_fields.append('GroupId')
                 if product.ProductName != item['english_name']:
                     product.ProductName = item['english_name']
-                    update_fields.append('ProductName')
                 if (product.ProductNameTamil or None) != item['tamil_name']:
                     product.ProductNameTamil = item['tamil_name']
-                    update_fields.append('ProductNameTamil')
                 if not product.Units:
                     product.Units = default_unit.UnitName
-                    update_fields.append('Units')
                 if not product.UnitId_id:
                     product.UnitId = default_unit
-                    update_fields.append('UnitId')
-                if update_fields:
-                    product.save(update_fields=update_fields)
+                restored_products.append(product)
+                products_to_update.append(product)
+                product_items_to_price.append((product, item))
             else:
-                product = Product.objects.create(
+                temp_code = f"{temp_code_prefix}{item['excel_row']}"
+                product = Product(
                     GroupId=group,
+                    ProductCode=temp_code,
                     ProductName=item['english_name'],
                     ProductNameTamil=item['tamil_name'],
                     HSNCode=None,
@@ -795,70 +1016,156 @@ def _run_common_product_import(upload, user, imported_page):
                     IsActive=True,
                     CreatedBy=user,
                 )
+                products_to_create.append(product)
                 products[product_lookup] = product
-                products_created += 1
+                product_items_to_price.append((product, item))
 
+        if products_to_create:
+            Product.objects.bulk_create(products_to_create, batch_size=500)
+            temp_codes = [p.ProductCode for p in products_to_create]
+            created_products_by_code = {
+                p.ProductCode: p
+                for p in Product.objects.select_for_update().filter(ProductCode__in=temp_codes)
+            }
+            products_created = len(created_products_by_code)
+            products_to_finalize = []
+            for product in products_to_create:
+                created = created_products_by_code.get(product.ProductCode)
+                if not created:
+                    continue
+                created.ProductCode = f"POD_{str(created.id).zfill(3)}"
+                products_to_finalize.append(created)
+            if created_products_by_code:
+                product_items_to_price = [
+                    (created_products_by_code.get(product.ProductCode, product), item)
+                    for product, item in product_items_to_price
+                ]
+            if products_to_finalize:
+                Product.objects.bulk_update(products_to_finalize, ['ProductCode'], batch_size=500)
+
+        if products_to_update:
+            Product.objects.bulk_update(
+                products_to_update,
+                ['IsActive', 'GroupId', 'ProductName', 'ProductNameTamil', 'Units', 'UnitId'],
+                batch_size=500,
+            )
+
+        product_ids = [product.id for product, _ in product_items_to_price if product.id]
+        price_code_ids = [pc.id for pc in price_codes.values()]
+        existing_prices = {
+            (price.ProductId_id, price.PriceCodeID_id): price
+            for price in ProductPriceDetails.objects.select_for_update().filter(
+                ProductId_id__in=product_ids,
+                PriceCodeID_id__in=price_code_ids,
+            )
+        }
+        prices_to_create = []
+        prices_to_update = []
+        for product, item in product_items_to_price:
+            if not product.id:
+                continue
             for _, code in COMMON_PRICE_COLUMNS:
                 if item['prices'][code] is None:
                     continue
                 pc = price_codes[code.casefold()]
-                price_obj, created = ProductPriceDetails.objects.select_for_update().update_or_create(
-                    ProductId=product,
-                    PriceCodeID=pc,
-                    defaults={
-                        'ProductPrice': item['prices'][code],
-                        'PriceName': pc.PriceCodeName,
-                        'CreatedBy': user,
-                    },
-                )
-                if created:
-                    prices_created += 1
-                else:
+                key = (product.id, pc.id)
+                price_obj = existing_prices.get(key)
+                if price_obj:
+                    if price_obj.ProductPrice != item['prices'][code] or price_obj.PriceName != pc.PriceCodeName:
+                        price_obj.ProductPrice = item['prices'][code]
+                        price_obj.PriceName = pc.PriceCodeName
+                        prices_to_update.append(price_obj)
                     prices_updated += 1
+                else:
+                    prices_to_create.append(ProductPriceDetails(
+                        ProductId=product,
+                        PriceCodeID=pc,
+                        ProductPrice=item['prices'][code],
+                        PriceName=pc.PriceCodeName,
+                        CreatedBy=user,
+                    ))
+                    prices_created += 1
+        if prices_to_create:
+            ProductPriceDetails.objects.bulk_create(prices_to_create, batch_size=1000)
+        if prices_to_update:
+            ProductPriceDetails.objects.bulk_update(prices_to_update, ['ProductPrice', 'PriceName'], batch_size=1000)
 
         ProductImportHistory.objects.create(
             FileDataHash=data_hash,
             OriginalFileName=upload.name,
-            TotalRows=len(prepared),
+            TotalRows=total_rows,
             ImportedPage=(imported_page or '').strip()[:50],
             ImportedBy=user,
             ImportStatus='SUCCESS',
         )
 
-    summary = {
-        'total_rows': len(prepared),
-        'imported_rows': products_created + products_restored,
-        'rejected_rows': 0,
-        'duplicate_rows': products_skipped_as_duplicates,
-        'groups_created': groups_created,
-        'new_groups_created': groups_created,
-        'existing_groups_reused': len(existing_group_keys_reused),
-        'products_created': products_created,
-        'products_updated': 0,
-        'products_restored': products_restored,
-        'existing_products_skipped': products_skipped_as_duplicates,
-        'products_skipped_as_duplicates': products_skipped_as_duplicates,
-        'prices_created': prices_created,
-        'prices_updated': prices_updated,
-        'prices_created_or_updated': prices_created + prices_updated,
-        'rows_skipped': products_skipped_as_duplicates,
-        'rows_failed': 0,
-    }
-    if products_created or products_restored or prices_created or prices_updated:
-        message = 'Import completed. Missing products were added or restored; existing products were skipped.'
+    invalid_rows = [
+        {'row': excel_row, 'group': row[IMPORT_COL_GROUP], 'product': row[IMPORT_COL_ENGLISH], 'reason': reason}
+        for excel_row, row, reason in errors_by_row
+    ]
+    repeated_product_row_numbers = [row['row'] for row in skipped_duplicate_rows]
+    database_duplicate_row_numbers = [
+        row['row'] for row in skipped_rows
+        if row.get('duplicate_type') == 'existing_database'
+    ]
+    rejected_row_numbers = [row['row'] for row in invalid_rows]
+    duplicate_inside_file = len(skipped_duplicate_rows)
+    duplicate_rows = products_skipped_as_duplicates + duplicate_inside_file
+    imported_count = products_created + products_restored
+    rejected_count = len(errors_by_row)
+    summary = _import_summary(
+        total_rows=total_rows,
+        imported_count=imported_count,
+        duplicate_count=duplicate_rows,
+        rejected_count=rejected_count,
+        groups_created=groups_created,
+        existing_group_count=len(existing_group_keys_reused),
+        products_created=products_created,
+        products_restored=products_restored,
+        duplicate_existing_database=products_skipped_as_duplicates,
+        duplicate_inside_file=duplicate_inside_file,
+        inactive_existing_products=inactive_existing_products,
+        prices_created=prices_created,
+        prices_updated=prices_updated,
+        empty_price_values_skipped=empty_price_values_skipped,
+    )
+    if imported_count and rejected_count:
+        message = 'Excel import completed with warnings.'
+    elif imported_count:
+        message = 'Excel import completed.'
+    elif duplicate_rows:
+        message = 'No New Products Imported'
     else:
-        message = 'All products in this Excel already exist. No duplicate data was stored.'
-    return Response({
-        'success': True,
-        'message': message,
-        'imported': products_created,
-        'updated': 0,
-        'restored': products_restored,
-        'skipped_duplicates': products_skipped_as_duplicates,
-        'skipped_rows': skipped_rows,
-        'summary': summary,
-        **summary,
-    }, status=status.HTTP_200_OK)
+        message = 'Excel import rejected. No rows were imported.'
+    response_status_value = 'error' if imported_count == 0 and duplicate_rows == 0 and rejected_count > 0 else 'success'
+    http_status = status.HTTP_400_BAD_REQUEST if response_status_value == 'error' else status.HTTP_200_OK
+    error_file_base64 = ''
+    if errors_by_row:
+        error_file_base64 = base64.b64encode(_build_error_xlsx(errors_by_row)).decode('ascii')
+    return Response(_import_response_payload(
+        status_value=response_status_value,
+        message=message,
+        file_name=upload.name,
+        total_rows=total_rows,
+        imported_count=imported_count,
+        duplicate_count=duplicate_rows,
+        rejected_count=rejected_count,
+        rejected_rows=invalid_rows,
+        summary=summary,
+        extra={
+            'imported': products_created,
+            'updated': 0,
+            'restored': products_restored,
+            'skipped_duplicates': duplicate_rows,
+            'skipped_rows': skipped_rows[:50],
+            'skipped_rows_total': len(skipped_rows),
+            'repeated_product_row_numbers': repeated_product_row_numbers,
+            'database_duplicate_row_numbers': database_duplicate_row_numbers,
+            'rejected_row_numbers': rejected_row_numbers,
+            'error_file_name': 'Product_Import_Errors.xlsx' if error_file_base64 else '',
+            'error_file_base64': error_file_base64,
+        },
+    ), status=http_status)
 
 
 class ProductImportTemplateView(APIView):
@@ -877,15 +1184,55 @@ class ProductImportView(APIView):
     def post(self, request):
         upload = request.FILES.get('file')
         if not upload:
-            return Response({'success': False, 'message': 'Excel Import Rejected', 'detail': 'Excel file is required.', 'errors': [], 'rejected_rows': []}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(_import_response_payload(
+                status_value='error',
+                message='Excel Import Rejected',
+                rejected_count=1,
+                rejected_rows=[],
+                extra={
+                    'detail': 'Excel file is required.',
+                    'errors': [{'reason': 'Excel file is required.'}],
+                },
+            ), status=status.HTTP_400_BAD_REQUEST)
         if not upload.name.lower().endswith('.xlsx'):
-            return Response({'success': False, 'message': 'Excel Import Rejected', 'detail': 'Workbook must be an .xlsx file.', 'errors': [], 'rejected_rows': []}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(_import_response_payload(
+                status_value='error',
+                message='Excel Import Rejected',
+                file_name=upload.name,
+                rejected_count=1,
+                rejected_rows=[],
+                extra={
+                    'detail': 'Workbook must be an .xlsx file.',
+                    'errors': [{'reason': 'Workbook must be an .xlsx file.'}],
+                },
+            ), status=status.HTTP_400_BAD_REQUEST)
         try:
             return _run_common_product_import(upload, request.user, request.data.get('imported_page', ''))
         except ValueError as exc:
-            return Response({'success': False, 'message': 'Excel Import Rejected', 'detail': str(exc), 'errors': [], 'rejected_rows': []}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(_import_response_payload(
+                status_value='error',
+                message='Excel Import Rejected',
+                file_name=upload.name,
+                rejected_count=1,
+                rejected_rows=[],
+                extra={
+                    'detail': str(exc),
+                    'errors': [{'reason': str(exc)}],
+                },
+            ), status=status.HTTP_400_BAD_REQUEST)
         except Exception as exc:
-            return Response({'detail': f'Invalid workbook: {exc}'}, status=status.HTTP_400_BAD_REQUEST)
+            detail = f'Invalid workbook: {exc}'
+            return Response(_import_response_payload(
+                status_value='error',
+                message='Excel Import Rejected',
+                file_name=upload.name,
+                rejected_count=1,
+                rejected_rows=[],
+                extra={
+                    'detail': detail,
+                    'errors': [{'reason': detail}],
+                },
+            ), status=status.HTTP_400_BAD_REQUEST)
 
 
 # â”€â”€â”€ Unit â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€

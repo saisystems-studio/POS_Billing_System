@@ -47,7 +47,10 @@ const UQCDropdown = ({ units, value, onChange, error }) => {
   const allUQC = [...new Set(units.map(u => String(u.UQC || '').trim().toUpperCase()).filter(Boolean))].sort();
   const filtered = q.trim() ? allUQC.filter(u => u.toLowerCase().includes(q.toLowerCase())) : allUQC;
 
-  useEffect(() => { setQ(value || ''); }, [value]);
+  useEffect(() => {
+    if (document.activeElement === inputRef.current) return;
+    setQ(value || '');
+  }, [value]);
   useEffect(() => {
     if (!open) return;
     const h = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
@@ -73,7 +76,7 @@ const UQCDropdown = ({ units, value, onChange, error }) => {
         style={{...CI,width:'100%',paddingRight:'1.6rem',border:`1.5px solid ${error?'var(--danger)':BRAND}`,borderRadius:6}}
         onChange={e=>{setQ(e.target.value.toUpperCase());setOpen(true);onChange('');}}
         onFocus={()=>setOpen(true)}
-        onBlur={()=>setTimeout(()=>{ if (!value) setQ(''); }, 120)}/>
+        onBlur={()=>setTimeout(()=>{ setOpen(false); if (!value) setQ(''); else setQ(value); }, 120)}/>
       <span style={{position:'absolute',right:'.5rem',top:'50%',transform:'translateY(-50%)',pointerEvents:'none',color:'var(--text-muted)',fontSize:'.6rem'}}>v</span>
       {open && filtered.length > 0 && (
         <ul style={{position:'absolute',top:'100%',left:0,right:0,zIndex:99999,
@@ -247,7 +250,10 @@ const GroupDropdown = ({ groups, value, onChange, onGroupAdded, onGroupSelected,
   const inputRef = useRef(null);
 
   const sel = groups.find(g => g.id === value);
-  useEffect(() => { setQ(sel ? sel.GroupName : ''); }, [value, groups]);
+  useEffect(() => {
+    if (document.activeElement === inputRef.current) return;
+    setQ(sel ? sel.GroupName : '');
+  }, [value, groups, sel]);
   useEffect(() => {
     if (!open) return;
     const h = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
@@ -346,7 +352,10 @@ const UnitDropdown = ({ units, value, onChange, onUnitAdded, onUnitsChanged, dis
   const inputRef = useRef(null);
 
   const unitLabel = (u) => u ? `${u.UQC || '--'} - ${u.UnitName}` : '';
-  useEffect(() => { setQ(unitLabel(selected)); }, [selected]);
+  useEffect(() => {
+    if (document.activeElement === inputRef.current) return;
+    setQ(unitLabel(selected));
+  }, [selected]);
   useEffect(() => {
     if (!open) return;
     const h = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };

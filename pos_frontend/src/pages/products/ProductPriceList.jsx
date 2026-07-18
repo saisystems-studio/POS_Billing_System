@@ -6,7 +6,9 @@ import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import api from '../../services/api';
 import productService from '../../services/productService';
+import productGroupService from '../../services/productGroupService';
 import billingService from '../../services/billingService';
+import { formatBackendImportError, getImportToast, isCanceledImport, isTimeoutImport } from '../../utils/excelImportFeedback';
 
 const BRAND = '#8A5125';
 const PAGE_SIZE = 10;
@@ -15,11 +17,17 @@ const PRICE_CODE_PAGE_CACHE_LIMIT = 20;
 const PRICE_CODE_PAGE_STORAGE_KEY = 'price-code-list-page';
 const PRICE_CODE_CACHE_STORAGE_KEY = 'price-code-list-cache-v1';
 const SearchIcon = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{width:14,height:14}}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>;
+const UploadIcon = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round" style={{width:14,height:14}}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>;
 
 const Spin = () => (
   <span style={{display:'inline-block',width:13,height:13,
     border:'2px solid rgba(255,255,255,.35)',borderTopColor:'#fff',
     borderRadius:'50%',animation:'spin .6s linear infinite'}}/>
+);
+const ImportSpin = () => (
+  <svg className="import-loading-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M6 3h12M6 21h12M8 3c0 4 2.5 5.5 4 7 1.5-1.5 4-3 4-7M8 21c0-4 2.5-5.5 4-7 1.5 1.5 4 3 4 7"/>
+  </svg>
 );
 
 const ProductPriceList = () => {
@@ -32,21 +40,27 @@ const ProductPriceList = () => {
   const [priceCodes, setPriceCodes] = useState([]);
   const [search,     setSearch]     = useState('');
   const [debSearch,  setDebSearch]  = useState('');
+  const [groupFilter, setGroupFilter] = useState('');
+  const [groups, setGroups] = useState([]);
   const [page,       setPage]       = useState(() => {
     const saved = Number(sessionStorage.getItem(PRICE_CODE_PAGE_STORAGE_KEY) || 1);
     return Number.isFinite(saved) && saved > 0 ? saved : 1;
   });
+  const [loadedPage, setLoadedPage] = useState(page);
   const [total,      setTotal]      = useState(0);
   const [rows,       setRows]       = useState({});   // { productId: { pcId: value, ... } }
   const [dirty,      setDirty]      = useState({});   // { productId: bool }
   const [saving,     setSaving]     = useState({});   // { productId: bool }
   const [savingAll,  setSavingAll]  = useState(false);
+  const [importing,  setImporting]  = useState(false);
   const [error,      setError]      = useState('');
   const [lastLoadFailed, setLastLoadFailed] = useState(false);
   const [activeRowId, setActiveRowId] = useState(null);
   const fileInputRef = useRef(null);
   const fetchSeqRef = useRef(0);
+  const importAbortRef = useRef(null);
   const dirtyRef = useRef({});
+  const navigationLockRef = useRef(false);
   const pageCacheRef = useRef(new Map());
   const pageRequestsRef = useRef(new Map());
 
@@ -76,6 +90,14 @@ const ProductPriceList = () => {
     }, 400);
     return () => clearTimeout(t);
   }, [search]);
+
+  useEffect(() => { setPage(1); }, [groupFilter]);
+
+  useEffect(() => {
+    productGroupService.getGroupsDropdown()
+      .then(data => setGroups(Array.isArray(data) ? data : []))
+      .catch(() => {});
+  }, []);
 
   // Redirect non-admins immediately
   useEffect(() => {
@@ -108,10 +130,11 @@ const ProductPriceList = () => {
     setError(''); setLastLoadFailed(false);
     const searchTerm = debSearch;
     const authScope = user?.id || user?.username || username || 'anonymous';
-    const cacheKey = `${authScope}|price-code-list|page=${page}|page_size=${PAGE_SIZE}|search=${searchTerm}|status=active|ordering=${PRICE_CODE_ORDERING}`;
+    const cacheKey = `${authScope}|price-code-list|page=${page}|page_size=${PAGE_SIZE}|search=${searchTerm}|group=${groupFilter}|status=active|ordering=${PRICE_CODE_ORDERING}`;
     const cached = !options.force ? pageCacheRef.current.get(cacheKey) : null;
     if (cached) {
       applyPageData(cached.products, cached.priceCodes, cached.total);
+      setLoadedPage(page);
       setLoading(false);
     } else {
       setLoading(true);
@@ -122,6 +145,7 @@ const ProductPriceList = () => {
         page_size: PAGE_SIZE,
         ordering: PRICE_CODE_ORDERING,
         ...(searchTerm ? { search: searchTerm } : {}),
+        ...(groupFilter ? { group: groupFilter } : {}),
       };
       let request = pageRequestsRef.current.get(cacheKey);
       if (!request || options.force) {
@@ -146,10 +170,11 @@ const ProductPriceList = () => {
       }
       persistPageCache();
       applyPageData(prods, pcs, totalCount);
+      setLoadedPage(page);
       const maxPage = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
       [page - 1, page + 1].filter(n => n >= 1 && n <= maxPage).forEach(n => {
         const nextParams = { ...params, page: n };
-        const nextKey = `${authScope}|price-code-list|page=${n}|page_size=${PAGE_SIZE}|search=${searchTerm}|status=active|ordering=${PRICE_CODE_ORDERING}`;
+        const nextKey = `${authScope}|price-code-list|page=${n}|page_size=${PAGE_SIZE}|search=${searchTerm}|group=${groupFilter}|status=active|ordering=${PRICE_CODE_ORDERING}`;
         if (pageCacheRef.current.has(nextKey) || pageRequestsRef.current.has(nextKey)) return;
         const prefetch = Promise.all([
           api.get('/products/for-price-page/', { params: nextParams, dedupe: false, timeout: 30000 }),
@@ -183,7 +208,7 @@ const ProductPriceList = () => {
     } finally {
       if (seq === fetchSeqRef.current) setLoading(false);
     }
-  }, [applyPageData, debSearch, page, persistPageCache, products.length, user, username]);
+  }, [applyPageData, debSearch, groupFilter, page, persistPageCache, products.length, user, username]);
 
   useEffect(() => {
     const clearPriceCodeCache = () => {
@@ -217,7 +242,7 @@ const ProductPriceList = () => {
     const vals = rows[productId] || {};
     for (const pc of priceCodes) {
       const v = vals[pc.id];
-      if (v === '' || v === undefined || v === null) return `${pc.DisplayLabel} is required.`;
+      if (v === '' || v === undefined || v === null) continue;
       const n = parseFloat(v);
       if (isNaN(n) || n < 0) return `${pc.DisplayLabel} must be ≥ 0.`;
     }
@@ -230,7 +255,10 @@ const ProductPriceList = () => {
     setSaving(prev => ({ ...prev, [productId]: true }));
     try {
       const prices = {};
-      priceCodes.forEach(pc => { prices[pc.id] = parseFloat(rows[productId][pc.id]); });
+      priceCodes.forEach(pc => {
+        const value = rows[productId][pc.id];
+        if (value !== '' && value !== undefined && value !== null) prices[pc.id] = parseFloat(value);
+      });
       await api.post('/product-price-save/', { ProductId: productId, prices });
       window.dispatchEvent(new Event('pos-products-changed'));
       setDirty(prev => ({ ...prev, [productId]: false }));
@@ -252,7 +280,10 @@ const ProductPriceList = () => {
       if (err) { failed++; toast.error('Validation', err); continue; }
       try {
         const prices = {};
-        priceCodes.forEach(pc => { prices[pc.id] = parseFloat(rows[pid][pc.id]); });
+        priceCodes.forEach(pc => {
+          const value = rows[pid][pc.id];
+          if (value !== '' && value !== undefined && value !== null) prices[pc.id] = parseFloat(value);
+        });
         await api.post('/product-price-save/', { ProductId: pid, prices });
         window.dispatchEvent(new Event('pos-products-changed'));
         setDirty(prev => ({ ...prev, [pid]: false }));
@@ -308,52 +339,115 @@ const ProductPriceList = () => {
   };
 
   const formatImportSummary = (summary = {}) => {
-    return `Products created: ${summary.products_created ?? 0}, Products restored: ${summary.products_restored ?? 0}, Existing products skipped: ${summary.existing_products_skipped ?? summary.products_skipped_as_duplicates ?? summary.rows_skipped ?? 0}, Prices created: ${summary.prices_created ?? 0}, Prices updated: ${summary.prices_updated ?? 0}.`;
+    const imported = summary.imported_rows ?? summary.products_created ?? 0;
+    const duplicates = summary.duplicate_rows ?? summary.products_skipped_as_duplicates ?? summary.rows_skipped ?? 0;
+    const rejected = summary.invalid_rows_rejected ?? summary.rejected_rows ?? summary.rows_failed ?? 0;
+    const notImported = summary.not_imported ?? (duplicates + rejected);
+    return `Successfully Imported: ${imported}\nNot Imported: ${notImported}\nDuplicates Skipped: ${duplicates}\nRejected Rows: ${rejected}`;
+  };
+
+  const formatImportDetails = (data = {}) => {
+    const rows = [
+      ...(data.skipped_rows || []),
+      ...(data.rejected_rows || data.errors || []),
+    ];
+    return rows.slice(0, 6).map(e => {
+      const context = [e.group, e.product].filter(Boolean).join(' / ');
+      return `Row ${e.row}${context ? ` - ${context}` : ''} - ${e.reason || e.error}`;
+    }).join(' | ');
   };
 
   const formatImportRejection = (data = {}) => {
     const summary = data.summary || {};
     const rows = data.rejected_rows || data.errors || [];
-    const counts = `Imported: ${summary.imported_rows ?? summary.products_created ?? 0}, Rejected: ${summary.rejected_rows ?? summary.rows_failed ?? rows.length}, Duplicate: ${summary.duplicate_rows ?? summary.products_skipped_as_duplicates ?? 0}.`;
-    const reasons = rows.slice(0, 5).map(e => `Row ${e.row}: ${e.reason || e.error}`).join(' | ');
-    return `${counts}${reasons ? ` ${reasons}` : ' Please correct the highlighted rows and upload it again.'}`;
+    const counts = formatImportSummary(summary);
+    const reasons = rows.slice(0, 5).map(e => {
+      const context = [e.group, e.product].filter(Boolean).join(' / ');
+      return `Row ${e.row}${context ? ` - ${context}` : ''} - ${e.reason || e.error}`;
+    }).join(' | ');
+    return `${counts}${reasons ? ` ${reasons}` : ' The file could not be processed.'}`;
+  };
+
+  const showImportToast = (result = {}) => {
+    toast.push(getImportToast(result));
   };
 
   const handleImportFile = async (event) => {
     const file = event.target.files?.[0];
     event.target.value = '';
-    if (!file) return;
-    setSavingAll(true);
+    if (!file || importing) return;
+    const controller = new AbortController();
+    importAbortRef.current = controller;
+    setImporting(true);
     try {
-      const result = await productService.importProducts(file, { importedPage: 'price-code-list' });
-      await loadData();
-      toast.success('Imported', `${result.message || 'Import completed.'} ${formatImportSummary(result.summary || result)}`);
-    } catch (err) {
-      const data = err.response?.data || {};
-      if (data.duplicate_import) {
-        toast.warning('Import Skipped', 'All products in this Excel already exist. No duplicate data was stored.');
+      const result = await productService.importProducts(file, { importedPage: 'price-code-list', signal: controller.signal });
+      sessionStorage.setItem(PRICE_CODE_PAGE_STORAGE_KEY, '1');
+      if (page === 1) {
+        await loadData({ force: true });
       } else {
-        downloadErrorExcel(data);
-        toast.error('Excel Import Rejected', formatImportRejection(data));
+        setPage(1);
       }
-    } finally { setSavingAll(false); }
+      showImportToast(result);
+    } catch (err) {
+      if (isCanceledImport(err)) {
+        const msg = 'Price Code import request was canceled before the server responded.';
+        toast.push({ type: 'warning', title: 'Import Canceled', message: msg, duration: 10000 });
+        return;
+      }
+      if (isTimeoutImport(err)) {
+        const msg = 'Request timed out. The upload is taking longer than expected.';
+        toast.push({ type: 'error', title: 'Request timed out', message: msg, duration: 10000 });
+        return;
+      }
+      const data = err.response?.data || {};
+      if (data?.errors || data?.rejected_rows || data?.summary) {
+        downloadErrorExcel(data);
+        showImportToast(data);
+      } else {
+        toast.push({ type: 'error', title: 'Excel Import Rejected', message: formatBackendImportError(err), duration: 10000 });
+      }
+    } finally {
+      if (importAbortRef.current?.signal) importAbortRef.current = null;
+      setImporting(false);
+    }
   };
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const pageRows = products;
-  const showingStart = pageRows.length ? ((page - 1) * PAGE_SIZE) + 1 : 0;
-  const showingEnd = pageRows.length ? Math.min((page - 1) * PAGE_SIZE + pageRows.length, total) : 0;
+  const showingStart = pageRows.length ? ((loadedPage - 1) * PAGE_SIZE) + 1 : 0;
+  const showingEnd = pageRows.length ? Math.min(((loadedPage - 1) * PAGE_SIZE) + pageRows.length, total) : 0;
   useEffect(() => {
     if (total > 0 && page > totalPages) setPage(totalPages);
   }, [page, total, totalPages]);
   const isInteractiveTarget = (target) => Boolean(target?.closest?.(
     'input, select, textarea, button, a, [role="button"], .pagination'
   ));
+  const openProductPage = useCallback((product) => {
+    if (!product?.id || navigationLockRef.current) return;
+    navigationLockRef.current = true;
+    navigate(`/products/${product.id}`);
+    setTimeout(() => {
+      navigationLockRef.current = false;
+    }, 600);
+  }, [navigate]);
   const moveActiveRow = (delta) => {
     if (!pageRows.length) return;
-    const currentIndex = Math.max(0, pageRows.findIndex(p => p.id === activeRowId));
-    const nextIndex = Math.min(pageRows.length - 1, Math.max(0, currentIndex + delta));
+    const currentIndex = pageRows.findIndex(p => p.id === activeRowId);
+    const fallbackIndex = delta > 0 ? -1 : pageRows.length;
+    const nextIndex = Math.min(pageRows.length - 1, Math.max(0, (currentIndex >= 0 ? currentIndex : fallbackIndex) + delta));
     setActiveRowId(pageRows[nextIndex].id);
+  };
+  const selectRow = (event, productId) => {
+    if (isInteractiveTarget(event.target)) return;
+    event.currentTarget.closest('.list-keyboard-zone')?.focus();
+    setActiveRowId(productId);
+  };
+  const openRow = (event, product) => {
+    if (isInteractiveTarget(event.target)) return;
+    event.preventDefault();
+    event.currentTarget.closest('.list-keyboard-zone')?.focus();
+    setActiveRowId(product.id);
+    openProductPage(product);
   };
   const handleListKeyDown = (event) => {
     if (isInteractiveTarget(event.target)) return;
@@ -367,14 +461,14 @@ const ProductPriceList = () => {
       const active = pageRows.find(p => p.id === activeRowId);
       if (!active) return;
       event.preventDefault();
-      navigate(`/products/${active.id}`);
+      openProductPage(active);
     }
   };
   const buildPages = () => {
     if (totalPages <= 7) return Array.from({ length: totalPages }, (_, i) => i + 1);
-    if (page <= 4) return [1, 2, 3, 4, 5, '...', totalPages];
-    if (page >= totalPages - 3) return [1, '...', totalPages - 4, totalPages - 3, totalPages - 2, totalPages - 1, totalPages];
-    return [1, '...', page - 1, page, page + 1, '...', totalPages];
+    if (loadedPage <= 4) return [1, 2, 3, 4, 5, '...', totalPages];
+    if (loadedPage >= totalPages - 3) return [1, '...', totalPages - 4, totalPages - 3, totalPages - 2, totalPages - 1, totalPages];
+    return [1, '...', loadedPage - 1, loadedPage, loadedPage + 1, '...', totalPages];
   };
 
   if (!isAdmin) return null;
@@ -397,7 +491,14 @@ const ProductPriceList = () => {
               placeholder="Search prices..."
               value={search} onChange={e => setSearch(e.target.value)}/>
           </div>
-          <button className="btn btn-outline-secondary btn-sm" onClick={() => fileInputRef.current?.click()}>Import</button>
+          <select className="form-select form-select-sm price-code-group-filter"
+            value={groupFilter} onChange={e => setGroupFilter(e.target.value)}>
+            <option value="">All Groups</option>
+            {groups.map(g => <option key={g.id} value={g.id}>{g.GroupName}</option>)}
+          </select>
+          <button className="btn btn-outline-secondary btn-sm" onClick={() => { if (!importing) fileInputRef.current?.click(); }} disabled={importing}>
+            {importing ? <ImportSpin/> : <UploadIcon/>}{importing ? 'Importing...' : 'Import'}
+          </button>
           <button className="btn btn-outline-secondary btn-sm" onClick={downloadImportTemplate}>Download Template</button>
           <button className="btn btn-outline-secondary btn-sm" onClick={handleExportCsv}>Export</button>
           <input ref={fileInputRef} type="file" accept=".xlsx" style={{display:'none'}} onChange={handleImportFile}/>
@@ -467,9 +568,15 @@ const ProductPriceList = () => {
                         borderBottom: '1px solid #ede3d9',
                         transition: 'background .12s',
                       }}
-                      onMouseEnter={e => { e.currentTarget.closest('.list-keyboard-zone')?.focus(); setActiveRowId(p.id); if (!isDirtyRow) e.currentTarget.style.background = '#f5ece0'; }}
-                      onMouseLeave={e => { if (!isDirtyRow) e.currentTarget.style.background = rowBg; }}>
-                      <td className="pc-cell-sno" style={{fontVariantNumeric:'tabular-nums'}}>{(page - 1) * PAGE_SIZE + idx + 1}</td>
+                      onClick={e => selectRow(e, p.id)}
+                      onDoubleClick={e => openRow(e, p)}
+                      onMouseEnter={e => {
+                        e.currentTarget.closest('.list-keyboard-zone')?.focus();
+                        setActiveRowId(p.id);
+                        if (!isDirtyRow && activeRowId !== p.id) e.currentTarget.style.background = '#f5ece0';
+                      }}
+                      onMouseLeave={e => { if (!isDirtyRow && activeRowId !== p.id) e.currentTarget.style.background = rowBg; }}>
+                      <td className="pc-cell-sno" style={{fontVariantNumeric:'tabular-nums'}}>{(loadedPage - 1) * PAGE_SIZE + idx + 1}</td>
                       <td className="pc-cell-product">
                         <div className="pc-product-name">{p.ProductName}</div>
                       </td>
@@ -509,13 +616,13 @@ const ProductPriceList = () => {
                 : `Showing 0 of ${total} records`}
             </div>
             <div className="pagination" style={{ marginTop: 0 }}>
-              <button className="pg-item" disabled={page === 1} onClick={() => setPage(p => p - 1)}>Previous</button>
+              <button className="pg-item" disabled={loadedPage === 1} onClick={() => setPage(Math.max(1, loadedPage - 1))}>Previous</button>
               {total > 0 && buildPages().map((n, i) =>
                 n === '...'
                   ? <span key={`e${i}`} className="pg-item" style={{ border: 'none', cursor: 'default', color: 'var(--text-muted)' }}>...</span>
-                  : <button key={n} className={`pg-item${page === n ? ' active' : ''}`} onClick={() => setPage(n)}>{n}</button>
+                  : <button key={n} className={`pg-item${loadedPage === n ? ' active' : ''}`} onClick={() => setPage(n)}>{n}</button>
               )}
-              <button className="pg-item" disabled={page === totalPages || total === 0} onClick={() => setPage(p => p + 1)}>Next</button>
+              <button className="pg-item" disabled={loadedPage === totalPages || total === 0} onClick={() => setPage(Math.min(totalPages, loadedPage + 1))}>Next</button>
             </div>
           </div>
         </div>

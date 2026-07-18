@@ -101,6 +101,10 @@ const Layout = ({ children }) => {
   const [profileOpen,      setProfileOpen]      = useState(false);
   const [sidebarProfileOpen, setSidebarProfileOpen] = useState(false);
   const [companyModal,     setCompanyModal]     = useState(false);
+  const [isMobileNav, setIsMobileNav] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return window.innerWidth < 1024;
+  });
   const profileRef = useRef(null);
   const sidebarProfileRef = useRef(null);
 
@@ -115,6 +119,12 @@ const Layout = ({ children }) => {
   }, [location.pathname, forceMasters, forceTransactions, forceReport]);
 
   useEffect(() => { setSidebarOpen(false); }, [location.pathname]);
+  useEffect(() => {
+    const syncMobileNav = () => setIsMobileNav(window.innerWidth < 1024);
+    syncMobileNav();
+    window.addEventListener('resize', syncMobileNav);
+    return () => window.removeEventListener('resize', syncMobileNav);
+  }, []);
   useEffect(() => {
     document.body.style.overflow = (sidebarOpen && window.innerWidth < 1024) ? 'hidden' : '';
     return () => { document.body.style.overflow = ''; };
@@ -164,6 +174,7 @@ const Layout = ({ children }) => {
   }, [location.pathname, logout, navigate]);
 
   const isDashboard = location.pathname === '/dashboard';
+  const sidebarVisualCollapsed = sidebarCollapsed && !isMobileNav;
 
   /* Sidebar expand/collapse icon — two arrows pointing inward (collapse) or outward (expand) */
   const SidebarToggleIcon = ({ collapsed }) => collapsed ? (
@@ -196,13 +207,13 @@ const Layout = ({ children }) => {
   );
 
   return (
-    <div className={`layout-container${sidebarCollapsed ? ' sidebar-is-collapsed' : ''}${menuCollapsed ? ' sidebar-menu-is-collapsed' : ''}`}>
+    <div className={`layout-container${sidebarVisualCollapsed ? ' sidebar-is-collapsed' : ''}${menuCollapsed ? ' sidebar-menu-is-collapsed' : ''}`}>
       <div className={`sidebar-overlay${sidebarOpen ? '' : ' hidden'}`} onClick={() => setSidebarOpen(false)} aria-hidden="true"/>
 
       {companyModal && <CompanyInfoModal onClose={() => setCompanyModal(false)}/>}
 
       {/* ── Sidebar ── */}
-      <aside className={`sidebar${sidebarOpen ? ' open' : ''}${sidebarCollapsed ? ' collapsed' : ''}`} aria-label="Navigation">
+      <aside className={`sidebar${sidebarOpen ? ' open' : ''}${sidebarVisualCollapsed ? ' collapsed' : ''}`} aria-label="Navigation">
         {/* Brand + collapse toggle */}
         <div className="sidebar-brand-row">
           <button type="button" className="sidebar-brand"
@@ -214,7 +225,7 @@ const Layout = ({ children }) => {
             ) : (
               <div className="sidebar-brand-logo"><Ic.Cart/></div>
             )}
-            {!sidebarCollapsed && (
+            {!sidebarVisualCollapsed && (
               <div style={{minWidth:0,flex:'1 1 auto'}}>
                 <div className="sidebar-brand-name">POS Billing System</div>
                 <div className="sidebar-brand-tag">Retail Management</div>
@@ -225,11 +236,11 @@ const Layout = ({ children }) => {
             <button
               className="sidebar-collapse-btn sidebar-full-toggle"
               onClick={toggleSidebarCollapsed}
-              aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-              title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
-              <SidebarToggleIcon collapsed={sidebarCollapsed}/>
+              aria-label={sidebarVisualCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+              title={sidebarVisualCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
+              <SidebarToggleIcon collapsed={sidebarVisualCollapsed}/>
             </button>
-            {!sidebarCollapsed && (
+            {!sidebarVisualCollapsed && (
               <button
                 className="sidebar-collapse-btn sidebar-menu-toggle"
                 onClick={toggleMenuCollapsed}
@@ -238,6 +249,14 @@ const Layout = ({ children }) => {
                 <MenuVisibilityIcon collapsed={menuCollapsed}/>
               </button>
             )}
+            <button
+              type="button"
+              className="sidebar-collapse-btn sidebar-mobile-close"
+              onClick={() => setSidebarOpen(false)}
+              aria-label="Close menu"
+              title="Close menu">
+              <Ic.X/>
+            </button>
           </div>
         </div>
 
@@ -246,51 +265,51 @@ const Layout = ({ children }) => {
             {/* Dashboard */}
             <li className="nav-item">
               <NavLink to="/dashboard" className={({isActive}) => `nav-link${isActive?' active':''}`}
-                data-tooltip="Dashboard" title={sidebarCollapsed ? 'Dashboard' : undefined}>
-                <span className="ni"><Ic.Grid/></span>{!sidebarCollapsed && 'Dashboard'}
+                data-tooltip="Dashboard" title={sidebarVisualCollapsed ? 'Dashboard' : undefined}>
+                <span className="ni"><Ic.Grid/></span>{!sidebarVisualCollapsed && 'Dashboard'}
               </NavLink>
             </li>
             {/* Masters submenu */}
-            <SubMenu label="Masters" icon={Ic.Layers} isOpen={mastersOpen} onToggle={toggleMasters} collapsed={sidebarCollapsed} menuCollapsed={menuCollapsed}>
+            <SubMenu label="Masters" icon={Ic.Layers} isOpen={mastersOpen} onToggle={toggleMasters} collapsed={sidebarVisualCollapsed} menuCollapsed={menuCollapsed}>
               <li className="nav-item">
-                <NavLink to="/products" end className={({isActive}) => `nav-link${isActive?' active':''}`} data-tooltip="Product" title={sidebarCollapsed ? 'Product' : undefined}>
-                  <span className="ni"><Ic.Package/></span>{!sidebarCollapsed && 'Product'}
+                <NavLink to="/products" end className={({isActive}) => `nav-link${isActive?' active':''}`} data-tooltip="Product" title={sidebarVisualCollapsed ? 'Product' : undefined}>
+                  <span className="ni"><Ic.Package/></span>{!sidebarVisualCollapsed && 'Product'}
                 </NavLink>
               </li>
               {isAdmin && (
                 <li className="nav-item">
-                  <NavLink to="/products/prices" className={({isActive}) => `nav-link${isActive?' active':''}`} data-tooltip="Price Code List" title={sidebarCollapsed ? 'Price Code List' : undefined}>
-                    <span className="ni"><Ic.Lock/></span>{!sidebarCollapsed && 'Price Code List'}
+                  <NavLink to="/products/prices" className={({isActive}) => `nav-link${isActive?' active':''}`} data-tooltip="Price Code List" title={sidebarVisualCollapsed ? 'Price Code List' : undefined}>
+                    <span className="ni"><Ic.Lock/></span>{!sidebarVisualCollapsed && 'Price Code List'}
                   </NavLink>
                 </li>
               )}
               <li className="nav-item">
-                <NavLink to="/customers" className={({isActive}) => `nav-link${isActive?' active':''}`} data-tooltip="Customer" title={sidebarCollapsed ? 'Customer' : undefined}>
-                  <span className="ni"><Ic.Users/></span>{!sidebarCollapsed && 'Customer'}
+                <NavLink to="/customers" className={({isActive}) => `nav-link${isActive?' active':''}`} data-tooltip="Customer" title={sidebarVisualCollapsed ? 'Customer' : undefined}>
+                  <span className="ni"><Ic.Users/></span>{!sidebarVisualCollapsed && 'Customer'}
                 </NavLink>
               </li>
             </SubMenu>
 
             {/* Transactions submenu */}
-            <SubMenu label="Transactions" icon={Ic.Transfer} isOpen={transactionsOpen} onToggle={toggleTransactions} collapsed={sidebarCollapsed} menuCollapsed={menuCollapsed}>
+            <SubMenu label="Transactions" icon={Ic.Transfer} isOpen={transactionsOpen} onToggle={toggleTransactions} collapsed={sidebarVisualCollapsed} menuCollapsed={menuCollapsed}>
               <li className="nav-item">
-                <NavLink to="/billing/new" className={({isActive}) => `nav-link${isActive?' active':''}`} data-tooltip="Sales" title={sidebarCollapsed ? 'Sales' : undefined}>
-                  <span className="ni"><Ic.Cart/></span>{!sidebarCollapsed && 'Sales'}
+                <NavLink to="/billing/new" className={({isActive}) => `nav-link${isActive?' active':''}`} data-tooltip="Sales" title={sidebarVisualCollapsed ? 'Sales' : undefined}>
+                  <span className="ni"><Ic.Cart/></span>{!sidebarVisualCollapsed && 'Sales'}
                 </NavLink>
               </li>
             </SubMenu>
 
             <li className="nav-item">
-              <NavLink to="/barcode-generator" className={({isActive}) => `nav-link${isActive?' active':''}`} data-tooltip="Barcode Generator" title={sidebarCollapsed ? 'Barcode Generator' : undefined}>
-                <span className="ni"><Ic.Barcode/></span>{!sidebarCollapsed && 'Barcode Generator'}
+              <NavLink to="/barcode-generator" className={({isActive}) => `nav-link${isActive?' active':''}`} data-tooltip="Barcode Generator" title={sidebarVisualCollapsed ? 'Barcode Generator' : undefined}>
+                <span className="ni"><Ic.Barcode/></span>{!sidebarVisualCollapsed && 'Barcode Generator'}
               </NavLink>
             </li>
 
             {/* Report submenu */}
-            <SubMenu label="Report" icon={Ic.Chart} isOpen={reportOpen} onToggle={toggleReport} collapsed={sidebarCollapsed} menuCollapsed={menuCollapsed}>
+            <SubMenu label="Report" icon={Ic.Chart} isOpen={reportOpen} onToggle={toggleReport} collapsed={sidebarVisualCollapsed} menuCollapsed={menuCollapsed}>
               <li className="nav-item">
-                <NavLink to="/billing" end className={({isActive}) => `nav-link${isActive?' active':''}`} data-tooltip="Sales Report" title={sidebarCollapsed ? 'Sales Report' : undefined}>
-                  <span className="ni"><Ic.Receipt/></span>{!sidebarCollapsed && 'Sales Report'}
+                <NavLink to="/billing" end className={({isActive}) => `nav-link${isActive?' active':''}`} data-tooltip="Sales Report" title={sidebarVisualCollapsed ? 'Sales Report' : undefined}>
+                  <span className="ni"><Ic.Receipt/></span>{!sidebarVisualCollapsed && 'Sales Report'}
                 </NavLink>
               </li>
             </SubMenu>
@@ -300,7 +319,7 @@ const Layout = ({ children }) => {
         {/* Sidebar profile section */}
         <div className="sidebar-footer" ref={sidebarProfileRef} style={{padding:'.5rem .5rem',borderTop:'1px solid var(--sidebar-border)',position:'relative'}}>
           {/* Profile card */}
-          {!sidebarCollapsed ? (
+          {!sidebarVisualCollapsed ? (
             <div onClick={() => setSidebarProfileOpen(v => !v)} style={{
               display:'flex',alignItems:'center',gap:'.5rem',
               cursor:'pointer',
@@ -357,9 +376,9 @@ const Layout = ({ children }) => {
 
           {/* Logout button */}
           <button className="sidebar-logout sidebar-logout-hidden" onClick={handleLogout}
-            title={sidebarCollapsed ? 'Logout' : undefined}>
+            title={sidebarVisualCollapsed ? 'Logout' : undefined}>
             <span className="ni" style={{background:'none'}}><Ic.LogOut/></span>
-            {!sidebarCollapsed && 'Logout'}
+            {!sidebarVisualCollapsed && 'Logout'}
           </button>
         </div>
       </aside>

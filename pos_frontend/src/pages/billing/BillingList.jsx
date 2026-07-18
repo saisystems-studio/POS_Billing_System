@@ -402,6 +402,7 @@ const BillingList = () => {
   const exportBtnRef = useRef(null);
   const dropMenuRef  = useRef(null);
   const fetchSeqRef = useRef(0);
+  const rowClickTimerRef = useRef(null);
 
   const totalPages        = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const visibleSalesTotal = billings.reduce((sum, bill) => {
@@ -423,8 +424,11 @@ const BillingList = () => {
       else if (e.key === 'ArrowUp') { e.preventDefault(); setKbRow(r => Math.max(r - 1, 0)); }
       else if (e.key === 'Enter' && kbRow >= 0 && billings[kbRow]) {
         e.preventDefault();
-        if (isAdmin) navigate(`/billing/${billings[kbRow].id}`);
-        else openViewMore(billings[kbRow]);
+        if (rowClickTimerRef.current) {
+          clearTimeout(rowClickTimerRef.current);
+          rowClickTimerRef.current = null;
+        }
+        navigate(`/billing/${billings[kbRow].id}?mode=edit`);
       } else if (e.key === 'Escape') {
         setViewMore(null);
         setDismissedActionBillId(billings[kbRow]?.id ?? hoveredBillId);
@@ -433,7 +437,29 @@ const BillingList = () => {
     };
     window.addEventListener('keydown', h);
     return () => window.removeEventListener('keydown', h);
-  }, [billings, kbRow, navigate, isAdmin]);
+  }, [billings, kbRow, navigate]);
+
+  useEffect(() => () => {
+    if (rowClickTimerRef.current) clearTimeout(rowClickTimerRef.current);
+  }, []);
+
+  const openBillingViewMode = useCallback((bill, rowIdx) => {
+    setKbRow(rowIdx);
+    if (rowClickTimerRef.current) clearTimeout(rowClickTimerRef.current);
+    rowClickTimerRef.current = setTimeout(() => {
+      rowClickTimerRef.current = null;
+      navigate(`/billing/${bill.id}?mode=view`);
+    }, 280);
+  }, [navigate]);
+
+  const openBillingEditMode = useCallback((bill, rowIdx) => {
+    setKbRow(rowIdx);
+    if (rowClickTimerRef.current) {
+      clearTimeout(rowClickTimerRef.current);
+      rowClickTimerRef.current = null;
+    }
+    navigate(`/billing/${bill.id}?mode=edit`);
+  }, [navigate]);
 
   /* â”€â”€ Auto-open invoice from BillingForm â”€â”€ */
   useEffect(() => {
@@ -823,13 +849,12 @@ td.bold{font-weight:700}td.mono{font-family:'Courier New',monospace;font-size:9p
                 )}
               >
                     {billings.length===0 ? (
-                      <tr><td colSpan={4} style={{padding:'3rem',textAlign:'center',color:'var(--text-muted)'}}>
-                        <div style={{fontSize:'2rem',marginBottom:'.5rem'}}>ðŸ§¾</div>
-                        {deb?`No sales records matching "${deb}"`
-                          :(dateMode==='specific'&&dateExact)?`No records on ${new Date(dateExact).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'})}.`
-                          :(dateFrom||dateTo)?`No sales records in the selected date range.`
-                          :'No sales records yet. Create your first sale.'}
-                      </td></tr>
+                      <tr className="sales-report-empty-row">
+                        <td colSpan={4} className="sales-report-empty-cell">
+                          <div className="sales-report-empty-title">No data</div>
+                          <div className="sales-report-empty-desc">No sales records yet. Create your first sale.</div>
+                        </td>
+                      </tr>
                     ) : <>
                     {billings.map((b,idx) => {
                       const grandTotal = b.GrandTotal ?? b.Amount;
@@ -840,7 +865,8 @@ td.bold{font-weight:700}td.mono{font-family:'Courier New',monospace;font-size:9p
                           aria-selected={kbRow===idx}
                           onMouseEnter={() => { setHoveredBillId(b.id); setKbRow(idx); setDismissedActionBillId(null); }}
                           onMouseLeave={() => setHoveredBillId(prev => prev === b.id ? null : prev)}
-                          onClick={() => setKbRow(idx)}>
+                          onClick={() => openBillingViewMode(b, idx)}
+                          onDoubleClick={() => openBillingEditMode(b, idx)}>
                           <td style={{color:'var(--text-muted)',fontSize:'.76rem',fontVariantNumeric:'tabular-nums',textAlign:'center'}}>
                             {(page-1)*PAGE_SIZE+idx+1}
                           </td>

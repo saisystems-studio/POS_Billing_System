@@ -82,6 +82,10 @@ export const AuthProvider = ({ children }) => {
    * Logout: clears all local storage auth data.
    */
   const logout = () => {
+    const refreshToken = localStorage.getItem('refresh_token');
+    if (refreshToken) {
+      authService.logout(refreshToken).catch(() => {});
+    }
     clearAuthStorage();
     setUser(null);
     setIsAuthenticated(false);

@@ -81,7 +81,10 @@ const SearchableDropdown = ({ value, onChange, options, placeholder, disabled, e
   const [open,  setOpen]  = useState(false);
   const ref = useRef(null);
   const inputRef = useRef(null);
-  useEffect(() => { setQuery(value || ''); }, [value]);
+  useEffect(() => {
+    if (document.activeElement === inputRef.current) return;
+    setQuery(value || '');
+  }, [value]);
   useEffect(() => {
     if (!open) return;
     const h = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
