@@ -16,6 +16,15 @@ const authService = {
   },
 
   /**
+   * Revoke refresh token on logout.
+   */
+  logout: async (refreshToken) => {
+    if (!refreshToken) return null;
+    const response = await api.post(`${AUTH_BASE}/logout/`, { refresh: refreshToken }, { skipAuth: true });
+    return response.data;
+  },
+
+  /**
    * Register new user
    */
   register: async ({ username, email, password, confirm_password }) => {

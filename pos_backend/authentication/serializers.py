@@ -9,9 +9,69 @@ Handles:
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
+from datetime import datetime, timezone as datetime_timezone
 from rest_framework import serializers
+from rest_framework_simplejwt.serializers import TokenRefreshSerializer
+from rest_framework_simplejwt.settings import api_settings
+from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.exceptions import TokenError, InvalidToken
+
+from .models import RevokedRefreshToken
 
 User = get_user_model()
+
+
+def _refresh_token_metadata(refresh_token):
+    user_id = refresh_token.get(api_settings.USER_ID_CLAIM)
+    exp = refresh_token.get('exp')
+    jti = refresh_token.get('jti')
+    if not user_id or not exp or not jti:
+        raise InvalidToken('Refresh token is missing required claims.')
+    expires_at = datetime.fromtimestamp(exp, tz=datetime_timezone.utc)
+    return user_id, jti, expires_at
+
+
+def revoke_refresh_token(refresh_token):
+    user_id, jti, expires_at = _refresh_token_metadata(refresh_token)
+    user = User.objects.filter(pk=user_id).first()
+    if not user:
+        raise InvalidToken('User not found.')
+    RevokedRefreshToken.objects.get_or_create(
+        jti=jti,
+        defaults={
+            'user': user,
+            'expires_at': expires_at,
+        },
+    )
+    return jti
+
+
+class CustomTokenRefreshSerializer(TokenRefreshSerializer):
+    """
+    Refresh serializer that checks this project's custom revoked-token table.
+    """
+
+    default_error_messages = {
+        'revoked': 'This refresh token has been revoked.',
+    }
+
+    def validate(self, attrs):
+        raw_refresh = attrs['refresh']
+        try:
+            refresh = RefreshToken(raw_refresh)
+        except TokenError as exc:
+            raise InvalidToken(exc.args[0]) from exc
+
+        _, jti, _ = _refresh_token_metadata(refresh)
+        if RevokedRefreshToken.objects.filter(jti=jti).exists():
+            self.fail('revoked')
+
+        data = super().validate(attrs)
+
+        if api_settings.ROTATE_REFRESH_TOKENS and data.get('refresh'):
+            revoke_refresh_token(refresh)
+
+        return data
 
 
 class RegisterSerializer(serializers.ModelSerializer):

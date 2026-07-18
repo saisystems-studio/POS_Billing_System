@@ -47,3 +47,30 @@ class User(AbstractUser):
     def is_admin(self):
         """Check if user has Admin role."""
         return self.role == 'Admin'
+
+
+class RevokedRefreshToken(models.Model):
+    """
+    Stores revoked refresh-token identifiers without storing raw JWT values.
+    """
+
+    user = models.ForeignKey(
+        'authentication.User',
+        on_delete=models.CASCADE,
+        related_name='revoked_refresh_tokens',
+    )
+    jti = models.CharField(max_length=255, unique=True, db_index=True)
+    expires_at = models.DateTimeField()
+    revoked_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'Revoked_Refresh_Token_tbl'
+        indexes = [
+            models.Index(fields=['jti'], name='idx_revoked_refresh_jti'),
+            models.Index(fields=['expires_at'], name='idx_revoked_refresh_exp'),
+            models.Index(fields=['user', 'expires_at'], name='idx_revoked_refresh_user_exp'),
+        ]
+        ordering = ['-revoked_at']
+
+    def __str__(self):
+        return f"{self.user_id}: {self.jti}"

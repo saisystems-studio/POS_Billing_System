@@ -13,9 +13,9 @@ let _id = 0;
 export const ToastProvider = ({ children }) => {
   const [toasts, setToasts] = useState([]);
 
-  const push = useCallback(({ type = 'success', title, message, duration = 2800 }) => {
+  const push = useCallback(({ type = 'success', title, message, duration = 2800, ...rest }) => {
     const id = ++_id;
-    setToasts(prev => [...prev, { id, type, title, message }]);
+    setToasts(prev => [...prev, { id, type, title, message, duration, ...rest }]);
     setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), duration);
   }, []);
 
@@ -63,9 +63,10 @@ const ProgressBar = ({ type, duration = 2800 }) => {
 };
 
 /* ─── Single Toast ─── */
-const Toast = ({ id, type, title, message, onDismiss }) => {
+const Toast = ({ id, type, title, message, details, detailsLabel = 'View Details', duration = 2800, onDismiss }) => {
   const isSuccess = type === 'success';
   const isError   = type === 'error';
+  const [showDetails, setShowDetails] = useState(false);
 
   // Thumb emoji icon
   const ThumbIcon = () => (
@@ -130,7 +131,7 @@ const Toast = ({ id, type, title, message, onDismiss }) => {
         border: `1.5px solid ${scheme.border}`,
         boxShadow: `0 8px 32px rgba(0,0,0,.13), 0 2px 8px rgba(0,0,0,.07),
                     inset 0 1px 0 rgba(255,255,255,.7)`,
-        minWidth: 280, maxWidth: 380,
+        minWidth: 0, width: 'min(380px, 100%)', maxWidth: 'calc(100vw - 1.5rem)',
         pointerEvents: 'all',
         overflow: 'hidden',
         animation: 'toastSlideIn .28s cubic-bezier(.22,1,.36,1) both',
@@ -169,10 +170,50 @@ const Toast = ({ id, type, title, message, onDismiss }) => {
         {message && (
           <div style={{
             fontSize: '.78rem', color: scheme.msgC,
-            fontWeight: 500, lineHeight: 1.4,
+            fontWeight: 500, lineHeight: 1.4, whiteSpace: 'pre-line',
+            maxHeight: showDetails ? 220 : 150,
+            overflowY: 'auto',
+            paddingRight: 2,
           }}>
             {message}
           </div>
+        )}
+        {details && (
+          <>
+            <button
+              type="button"
+              onClick={() => setShowDetails(v => !v)}
+              style={{
+                marginTop: '.45rem',
+                border: `1px solid ${scheme.border}`,
+                background: 'rgba(255,255,255,.55)',
+                color: scheme.closeC,
+                borderRadius: 6,
+                padding: '.22rem .5rem',
+                fontSize: '.72rem',
+                fontWeight: 800,
+                cursor: 'pointer',
+              }}
+            >
+              {showDetails ? 'Hide Details' : detailsLabel}
+            </button>
+            {showDetails && (
+              <div style={{
+                marginTop: '.4rem',
+                maxHeight: 180,
+                overflowY: 'auto',
+                whiteSpace: 'pre-line',
+                fontSize: '.74rem',
+                color: scheme.msgC,
+                background: 'rgba(255,255,255,.45)',
+                border: `1px solid ${scheme.border}`,
+                borderRadius: 8,
+                padding: '.45rem .5rem',
+              }}>
+                {details}
+              </div>
+            )}
+          </>
         )}
       </div>
 
@@ -198,7 +239,7 @@ const Toast = ({ id, type, title, message, onDismiss }) => {
       </button>
 
       {/* Progress bar */}
-      <ProgressBar type={type} />
+      <ProgressBar type={type} duration={duration} />
     </div>
   );
 };
@@ -208,7 +249,7 @@ const ToastContainer = ({ toasts, onDismiss }) => {
   if (!toasts.length) return null;
   return (
     <div style={{
-      position: 'fixed', top: '1.1rem', right: '1.5rem', zIndex: 99999,
+      position: 'fixed', top: 'max(.75rem, env(safe-area-inset-top))', right: '.75rem', left: '.75rem', zIndex: 99999,
       display: 'flex', flexDirection: 'column', gap: '.55rem',
       pointerEvents: 'none',
       alignItems: 'flex-end',

@@ -79,7 +79,10 @@ const CustomerSearchDropdown = ({ customers, value, onChange, disabled, onNaviga
   const pos = useDropdownPos(inputRef, open);
 
   const sel = customers.find(c => c.id === value);
-  useEffect(() => { setQ(sel ? sel.CustomerName : ''); }, [value, customers]); // eslint-disable-line
+  useEffect(() => {
+    if (document.activeElement === inputRef.current) return;
+    setQ(sel ? sel.CustomerName : '');
+  }, [value, customers, inputRef, sel]); // eslint-disable-line
 
   useEffect(() => {
     if (!open) return;
@@ -123,31 +126,37 @@ const CustomerSearchDropdown = ({ customers, value, onChange, disabled, onNaviga
     (c.PhoneNumber || '').includes(term)
   );
 
+  useEffect(() => {
+    if (!open) return;
+    setHi(h => {
+      if (filtered.length === 0) return -1;
+      return h < 0 ? 0 : Math.min(h, filtered.length - 1);
+    });
+  }, [filtered.length, open]);
+
   const pick = c => {
     onChange(c.id); setQ(c.CustomerName); setOpen(false); setHi(-1);
   };
 
   const handleKey = e => {
-    if (e.key === 'Escape') { setOpen(false); return; }
-    if (!open && (e.key === 'ArrowDown' || e.key === 'Enter')) { setOpen(true); return; }
+    if (e.key === 'Escape') { setOpen(false); setQ(sel ? sel.CustomerName : ''); return; }
+    if (e.key === 'Backspace' && !q) { e.preventDefault(); setOpen(false); onPrev?.(); return; }
     if (!open) {
       if (e.key === 'Enter') {
         e.preventDefault();
-        onNext?.();
-      } else if (e.key === 'ArrowRight') {
+        if (value) onNext?.();
+        else setOpen(true);
+        return;
+      }
+      if (e.key === 'ArrowDown') {
         e.preventDefault();
-        onNext?.();
-      } else if (e.key === 'ArrowLeft') {
-        e.preventDefault();
-        onPrev?.();
+        setOpen(true);
       }
       return;
     }
     if (e.key === 'ArrowDown') { e.preventDefault(); setHi(h => Math.min(h + 1, filtered.length - 1)); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); setHi(h => Math.max(h - 1, 0)); }
     else if (e.key === 'Enter') { e.preventDefault(); if (hi >= 0 && filtered[hi]) pick(filtered[hi]); }
-    else if (e.key === 'ArrowRight') { e.preventDefault(); setOpen(false); onNext?.(); }
-    else if (e.key === 'ArrowLeft') { e.preventDefault(); setOpen(false); onPrev?.(); }
   };
 
   useEffect(() => {
@@ -195,8 +204,8 @@ const CustomerSearchDropdown = ({ customers, value, onChange, disabled, onNaviga
             border:`1.5px solid ${open ? BRAND : 'var(--border-input)'}`,borderRadius:6,
             outline:'none',background:'var(--card-bg)',color:'var(--text-primary)',
             paddingRight:'1.6rem',transition:'border-color .15s'}}
-          onChange={e => { setQ(e.target.value); setOpen(true); setHi(-1); if (!e.target.value) onChange(null); }}
-          onFocus={() => { setQ(''); setOpen(true); setHi(-1); }}
+          onChange={e => { setQ(e.target.value); setOpen(true); setHi(0); if (!e.target.value) onChange(null); }}
+          onFocus={() => { setOpen(true); setHi(-1); inputRef.current?.select?.(); }}
           onBlur={() => { blurTimer.current = setTimeout(() => { setOpen(false); if (!sel) setQ(''); else setQ(sel.CustomerName); }, 180); }}
           onKeyDown={handleKey}/>
         <span onMouseDown={e => { e.preventDefault(); clearTimeout(blurTimer.current); if (!disabled) { setOpen(o => !o); setTimeout(() => inputRef.current?.focus(), 0); } }}
@@ -272,7 +281,6 @@ const PriceCodeDropdown = ({ priceCodes, value, onChange, disabled, productData,
 
   const openDrop = () => {
     if (disabled) return;
-    setSearch('');
     setHi(sel ? Math.max(0, priceCodes.indexOf(sel)) : 0);
     setOpen(true);
   };
@@ -280,17 +288,7 @@ const PriceCodeDropdown = ({ priceCodes, value, onChange, disabled, productData,
   /* Keyboard on the trigger input (the display span/button) */
   const handleTriggerKey = e => {
     if (e.key === 'Escape') { setOpen(false); return; }
-    if (e.key === 'ArrowRight') {
-      e.preventDefault();
-      if (value) {
-        setOpen(false);
-        onNext?.();
-      } else {
-        openDrop();
-      }
-      return;
-    }
-    if (e.key === 'ArrowLeft') { e.preventDefault(); setOpen(false); onPrev?.(); return; }
+    if (e.key === 'Backspace' && !value) { e.preventDefault(); setOpen(false); onPrev?.(); return; }
     if (e.key === 'Enter') {
       e.preventDefault();
       if (value) {
@@ -309,14 +307,10 @@ const PriceCodeDropdown = ({ priceCodes, value, onChange, disabled, productData,
   /* Keyboard on the internal search input */
   const handleSearchKey = e => {
     if (e.key === 'Escape') { setOpen(false); setSearch(''); inputRef.current?.focus(); return; }
+    if (e.key === 'Backspace' && !search) { e.preventDefault(); setOpen(false); onPrev?.(); return; }
     if (e.key === 'ArrowDown') { e.preventDefault(); setHi(h => Math.min(h + 1, filtered.length - 1)); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); setHi(h => Math.max(h - 1, 0)); }
     else if (e.key === 'Enter') { e.preventDefault(); if (filtered[hi]) pick(filtered[hi]); }
-    else if (e.key === 'ArrowRight') {
-      e.preventDefault();
-      if (value) { setOpen(false); setSearch(''); onNext?.(); }
-    }
-    else if (e.key === 'ArrowLeft') { e.preventDefault(); setOpen(false); setSearch(''); onPrev?.(); }
   };
 
   useEffect(() => {
@@ -454,6 +448,7 @@ const PRODUCT_VISIBLE_OVERSCAN = 4;
 const ProductSearchDropdown = ({
   products, value, onChange, disabled, inputRef: extRef, onNext, onPrev,
   onSearch, onRetry, onLoadMore, loading, loadingMore, hasMore, error,
+  moveToActionsOnEmptyEnter = false,
 }) => {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -472,7 +467,8 @@ const ProductSearchDropdown = ({
     if (!open) return;
     const h = e => {
       if (wrapRef.current && !wrapRef.current.contains(e.target)) {
-        setOpen(false); setSearch('');
+        setOpen(false);
+        setSearch('');
       }
     };
     document.addEventListener('mousedown', h);
@@ -520,7 +516,6 @@ const ProductSearchDropdown = ({
 
   const openDrop = () => {
     if (disabled) return;
-    setSearch('');
     setHi(sel ? Math.max(0, products.indexOf(sel)) : 0);
     setScrollTop(0);
     setOpen(true);
@@ -529,11 +524,13 @@ const ProductSearchDropdown = ({
   /* Keyboard on trigger (the display button) */
   const handleTriggerKey = e => {
     if (e.key === 'Escape') { setOpen(false); return; }
-    if (e.key === 'ArrowRight') { e.preventDefault(); setOpen(false); onNext?.(); return; }
-    if (e.key === 'ArrowLeft') { e.preventDefault(); setOpen(false); onPrev?.(); return; }
+    if (e.key === 'Backspace' && !value) { e.preventDefault(); setOpen(false); onPrev?.(); return; }
     if (e.key === 'Enter') {
       e.preventDefault();
       if (value) {
+        setOpen(false);
+        onNext?.();
+      } else if (moveToActionsOnEmptyEnter && !search.trim()) {
         setOpen(false);
         onNext?.();
       } else {
@@ -547,11 +544,17 @@ const ProductSearchDropdown = ({
   /* Keyboard on the internal search input */
   const handleSearchKey = e => {
     if (e.key === 'Escape') { setOpen(false); setSearch(''); inputRef.current?.focus(); return; }
+    if (e.key === 'Backspace' && !search) { e.preventDefault(); setOpen(false); onPrev?.(); return; }
     if (e.key === 'ArrowDown') { e.preventDefault(); setHi(h => Math.min(h + 1, filtered.length - 1)); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); setHi(h => Math.max(h - 1, 0)); }
-    else if (e.key === 'Enter') { e.preventDefault(); if (filtered[hi]) pick(filtered[hi]); }
-    else if (e.key === 'ArrowRight') { e.preventDefault(); setOpen(false); setSearch(''); onNext?.(); }
-    else if (e.key === 'ArrowLeft') { e.preventDefault(); setOpen(false); setSearch(''); onPrev?.(); }
+    else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (filtered[hi]) pick(filtered[hi]);
+      else if (moveToActionsOnEmptyEnter && !search.trim()) {
+        setOpen(false);
+        onNext?.();
+      }
+    }
   };
 
   useEffect(() => {
@@ -830,6 +833,9 @@ const BillingForm = () => {
   const { companyInfo } = useCompany();
   const toast       = useToast();
   const isEdit      = id !== undefined && id !== 'new';
+  const mode        = new URLSearchParams(location.search).get('mode');
+  const isViewMode  = isEdit && mode === 'view';
+  const isReadOnly  = isViewMode;
   const restoredDraftRef = useRef(false);
   const editBillLoadedRef = useRef(false);
 
@@ -859,12 +865,14 @@ const BillingForm = () => {
   /* cell refs: cellRefs.current[rowIdx][colKey] = HTMLElement */
   const cellRefs   = useRef([]);
   const rowCloseRefs = useRef([]);
+  const pageRef = useRef(null);
   const cancelBtnRef = useRef(null);
   const saveBtnRef = useRef(null);
   const custRef    = useRef(null);
   /* track a pending new-row auto-add to avoid double-adding */
   const addRowTimer = useRef(null);
   const saveInFlightRef = useRef(false);
+  const shortcutSavePendingRef = useRef(false);
   const initialCustomerFocusRef = useRef(false);
   const lastEnterRef = useRef({ time: 0, target: null });
   const customersReqRef = useRef(0);
@@ -968,6 +976,34 @@ const BillingForm = () => {
     return isRowComplete(last) ? [...activeRows, makeReadyBlankRow()] : activeRows;
   }, [makeReadyBlankRow]);
 
+  const focusCancel = useCallback(() => {
+    setTimeout(() => {
+      const el = cancelBtnRef.current;
+      if (el && !el.disabled) el.focus();
+    }, 30);
+  }, []);
+
+  const focusSave = useCallback(() => {
+    setTimeout(() => {
+      const el = saveBtnRef.current;
+      if (el && !el.disabled) el.focus();
+    }, 30);
+  }, []);
+
+  const focusLastCompletedAmount = useCallback(() => {
+    setTimeout(() => {
+      for (let rowIdx = rows.length - 1; rowIdx >= 0; rowIdx -= 1) {
+        if (!isRowComplete(rows[rowIdx])) continue;
+        const el = cellRefs.current[rowIdx]?.[COL_AMOUNT];
+        if (el && !el.disabled) {
+          el.focus();
+          return;
+        }
+      }
+      focusLastGridField();
+    }, 30);
+  }, [focusLastGridField, rows]);
+
   const ensureBlankRowAndFocusProduct = useCallback(() => {
     setRows(prev => {
       if (prev.some(isBlankRow)) return prev;
@@ -990,6 +1026,33 @@ const BillingForm = () => {
     ));
     setTimeout(() => focusFirstBlankProduct(), 60);
   }, [focusCell, focusFirstBlankProduct, keepSingleReadyBlankRow, rows]);
+
+  const completeRowCreateNextAndFocusProduct = useCallback((rowIdx, currentPatch = null) => {
+    const sourceRows = currentPatch
+      ? rows.map((r, i) => (i === rowIdx ? { ...r, ...currentPatch } : r))
+      : rows;
+    const current = sourceRows[rowIdx];
+    if (!isRowComplete(current)) {
+      focusCell(rowIdx, COL_RATE);
+      return;
+    }
+    setRows(prev => keepSingleReadyBlankRow(
+      currentPatch ? prev.map((r, i) => (i === rowIdx ? { ...r, ...currentPatch } : r)) : prev
+    ));
+    setTimeout(() => focusFirstBlankProduct(), 60);
+  }, [focusCell, focusFirstBlankProduct, keepSingleReadyBlankRow, rows]);
+
+  const completeRowAndFocusCancel = useCallback((rowIdx, currentPatch = null) => {
+    const sourceRows = currentPatch
+      ? rows.map((r, i) => (i === rowIdx ? { ...r, ...currentPatch } : r))
+      : rows;
+    const current = sourceRows[rowIdx];
+    if (!isRowComplete(current)) {
+      focusCell(rowIdx, COL_RATE);
+      return;
+    }
+    focusCancel();
+  }, [focusCancel, focusCell, rows]);
 
   /* ── navigate to next/prev cell ── */
   const navigateCell = useCallback((rowIdx, col, dir, currentPatch = null) => {
@@ -1029,6 +1092,10 @@ const BillingForm = () => {
     else if (nextCol < 0) { nextCol = cols.length - 1; nextRow = rowIdx - 1; }
     if (nextRow >= sourceRows.length) {
       const current = sourceRows[rowIdx];
+      if (isBlankRow(current)) {
+        focusCancel();
+        return;
+      }
       if (!isRowComplete(current)) {
         focusCell(rowIdx, col);
         return;
@@ -1041,7 +1108,7 @@ const BillingForm = () => {
     }
     if (nextRow < 0) { custRef.current?.focus(); return; }
     focusCell(nextRow, cols[nextCol]);
-  }, [activeCols, rows, focusCell, focusFirstBlankProduct, keepSingleReadyBlankRow]);
+  }, [activeCols, rows, focusCell, focusFirstBlankProduct, keepSingleReadyBlankRow, focusCancel]);
 
   /* ── register cell ref ── */
   const setCellRef = useCallback((rowIdx, col, el) => {
@@ -1242,7 +1309,7 @@ const BillingForm = () => {
         if ((bill.PriceCodeType || 'Random') === 'Fixed' && bill.DefaultPriceCodeID) {
           placeholder.PriceCodeID = bill.DefaultPriceCodeID;
         }
-        setRows(billRows.length > 0 ? [...billRows, placeholder] : [placeholder]);
+        setRows(isViewMode ? billRows : (billRows.length > 0 ? [...billRows, placeholder] : [placeholder]));
         const cust = customers.find(c => c.id === bill.CustomerID);
         if (cust?.PriceConfig && !cust.PriceConfig.PriceConfigurationMissing) setPriceConfig(cust.PriceConfig);
         else setPriceConfig({
@@ -1256,7 +1323,7 @@ const BillingForm = () => {
       } finally { setLoading(false); }
     };
     loadBill();
-  }, [id, isEdit]); // eslint-disable-line
+  }, [id, isEdit, isViewMode]); // eslint-disable-line
 
   /* ── Fill productData after products load (edit mode) ── */
   useEffect(() => {
@@ -1272,6 +1339,7 @@ const BillingForm = () => {
 
   /* ── Auto-expand: add new empty row when last row is complete ── */
   useEffect(() => {
+    if (isReadOnly) return;
     const last = rows[rows.length - 1];
     if (!last || !isRowComplete(last)) return;
     // Short debounce avoids duplicate additions while rate/price state settles.
@@ -1280,7 +1348,7 @@ const BillingForm = () => {
       setRows(prev => keepSingleReadyBlankRow(prev));
     }, 120);
     return () => clearTimeout(addRowTimer.current);
-  }, [rows.map(r => `${r.ProductID}|${r.Qty}|${r.PriceCodeID}|${r.rate}|${r.changeableRate}`).join(','), keepSingleReadyBlankRow]); // eslint-disable-line
+  }, [rows.map(r => `${r.ProductID}|${r.Qty}|${r.PriceCodeID}|${r.rate}|${r.changeableRate}`).join(','), keepSingleReadyBlankRow, isReadOnly]); // eslint-disable-line
 
   /* ── Keep cellRefs array sized ── */
   useEffect(() => {
@@ -1289,13 +1357,14 @@ const BillingForm = () => {
   }, [rows.length]);
 
   useEffect(() => {
+    if (isReadOnly) return;
     if (loading || initialCustomerFocusRef.current) return;
     initialCustomerFocusRef.current = true;
     setTimeout(() => {
       custRef.current?.focus();
       if (custRef.current?.select) custRef.current.select();
     }, 60);
-  }, [loading]);
+  }, [loading, isReadOnly]);
 
   /* ── Customer selection ── */
   const handleCustomerChange = useCallback((cid) => {
@@ -1523,6 +1592,7 @@ const BillingForm = () => {
 
   /* ── Save bill ── */
   const handleSave = useCallback(async () => {
+    if (isReadOnly) return;
     if (saving || saveInFlightRef.current) return;
     setApiError('');
     setRowErrors({});
@@ -1569,35 +1639,57 @@ const BillingForm = () => {
       saveInFlightRef.current = false;
       setSaving(false);
     }
-  }, [buildPayload, isEdit, id, navigate, toast, focusCell, saving]);
+  }, [buildPayload, isEdit, id, navigate, toast, focusCell, saving, isReadOnly]);
 
   useEffect(() => {
     const handler = e => {
-      if (!(e.ctrlKey || e.metaKey) || String(e.key).toLowerCase() !== 's') return;
+      if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || String(e.key).toLowerCase() !== 's') return;
+      if (isReadOnly) return;
+      const target = e.target;
+      const insideBillingForm = pageRef.current?.contains(target)
+        || target?.closest?.('[data-sales-dropdown-open="true"]')
+        || target?.closest?.('[data-sales-dropdown="true"]');
+      if (!insideBillingForm) return;
       e.preventDefault();
       e.stopPropagation();
-      if (e.repeat || saving || saveInFlightRef.current) return;
-      handleSave();
+      if (e.repeat || saving || saveInFlightRef.current || shortcutSavePendingRef.current) return;
+
+      shortcutSavePendingRef.current = true;
+      const active = document.activeElement;
+      if (active && pageRef.current?.contains(active) && typeof active.blur === 'function') {
+        active.blur();
+      }
+
+      setTimeout(() => {
+        shortcutSavePendingRef.current = false;
+        if (!saveInFlightRef.current) handleSave();
+      }, 0);
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [handleSave, saving]);
+  }, [handleSave, saving, isReadOnly]);
 
   const canSave = !saving && customerID && totals.rowCount > 0;
 
   const handleFormKeyDown = useCallback((e) => {
+    if (isReadOnly) return;
     const target = e.target;
     const isCancel = cancelBtnRef.current && (cancelBtnRef.current === target || cancelBtnRef.current.contains?.(target));
     const isSave = saveBtnRef.current && (saveBtnRef.current === target || saveBtnRef.current.contains?.(target));
     const isDropdownOpen = () => Boolean(document.querySelector('[data-sales-dropdown-open="true"]'));
 
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') return;
     if (e.key === 'Tab') return;
-    if (e.key !== 'Enter' && e.key !== 'ArrowRight') return;
+    if (e.key !== 'Enter' && e.key !== 'Backspace') return;
     if (e.defaultPrevented || isDropdownOpen() || target?.closest?.('[role="listbox"], [role="option"]')) return;
     lastEnterRef.current = { time: Date.now(), target };
 
     if (isSave || isCancel) {
       e.preventDefault();
+      if (e.key === 'Enter') {
+        if (isCancel) focusSave();
+        else if (isSave) ensureBlankRowAndFocusProduct();
+      }
       return;
     }
 
@@ -1608,12 +1700,19 @@ const BillingForm = () => {
         return el && (el === target || el.contains?.(target));
       });
       if (col) {
+        if (e.key === 'Backspace') {
+          const value = typeof target?.value === 'string' ? target.value : '';
+          if (value.length > 0) return;
+          e.preventDefault();
+          navigateCell(rowIdx, col, -1);
+          return;
+        }
         e.preventDefault();
         navigateCell(rowIdx, col, 1);
         return;
       }
     }
-  }, [activeCols, navigateCell]);
+  }, [activeCols, navigateCell, focusSave, ensureBlankRowAndFocusProduct, isReadOnly]);
 
   /* ── Delete bill (edit mode only) ── */
   const handleDelete = useCallback(async () => {
@@ -1673,11 +1772,11 @@ const BillingForm = () => {
         .remove-btn:disabled { opacity:.35; cursor:not-allowed; pointer-events:none; }
       `}</style>
 
-            <div className="billing-form-page" onKeyDown={handleFormKeyDown} style={{padding:'0'}}>
+            <div ref={pageRef} className="billing-form-page" onKeyDown={handleFormKeyDown} style={{padding:'0'}}>
 
         <div className="sales-compact-topbar">
           <h1 className="sales-compact-title">
-            {isEdit ? `Edit Invoice ${editBillNo}` : 'Sales'}
+            {isViewMode ? `View Invoice ${editBillNo}` : isEdit ? `Edit Invoice ${editBillNo}` : 'Sales'}
           </h1>
 
           <div className="sales-compact-customer">
@@ -1689,7 +1788,7 @@ const BillingForm = () => {
               value={customerID}
               onChange={handleCustomerChange}
               onNavigateToAdd={goToAddCustomer}
-              disabled={saving}
+              disabled={saving || isReadOnly}
               inputRef={custRef}
               onNext={() => focusCell(0, activeCols()[0])}
               onPrev={focusLastGridField}
@@ -1778,6 +1877,7 @@ const BillingForm = () => {
                   const hasChangeable = row.changeableRate && parseFloat(row.changeableRate) > 0;
                   const rowErr        = rowErrors[idx];
                   const isCompleted   = isRowComplete(row);
+                  const isFinalBlankRow = idx === rows.length - 1 && isBlankRow(row);
 
                   return (
                     <tr key={row._key} className={`bf-row${rowErr ? ' bf-row-error' : ''}`}
@@ -1795,10 +1895,14 @@ const BillingForm = () => {
                           products={products}
                           value={row.ProductID}
                           onChange={pid => handleProductChange(idx, pid)}
-                          disabled={saving}
+                          disabled={saving || isReadOnly}
                           inputRef={el => setCellRef(idx, COL_PRODUCT, el)}
-                          onNext={() => navigateCell(idx, COL_PRODUCT, 1)}
-                          onPrev={() => navigateCell(idx, COL_PRODUCT, -1)}
+                          onNext={() => {
+                            navigateCell(idx, COL_PRODUCT, 1);
+                          }}
+                          onPrev={() => {
+                            navigateCell(idx, COL_PRODUCT, -1);
+                          }}
                           onSearch={loadProducts}
                           onLoadMore={loadMoreProducts}
                           onRetry={retryProducts}
@@ -1820,7 +1924,7 @@ const BillingForm = () => {
                           className="bf-input"
                           type="number" min="0.01" step="0.01"
                           value={row.Qty}
-                          disabled={saving || !row.ProductID}
+                          disabled={saving || isReadOnly || !row.ProductID}
                           placeholder="0"
                           ref={el => setCellRef(idx, COL_QTY, el)}
                           onChange={e => updateRow(idx, { Qty: e.target.value })}
@@ -1832,7 +1936,7 @@ const BillingForm = () => {
                             mergeDuplicateProductQuantity(idx, e.currentTarget.value);
                           }}
                           onKeyDown={e => {
-                            if (e.key === 'ArrowRight') {
+                            if (e.key === 'Enter') {
                               e.preventDefault();
                               updateRow(idx, { Qty: e.currentTarget.value });
                               if (mergeDuplicateProductQuantity(idx, e.currentTarget.value)) {
@@ -1840,16 +1944,9 @@ const BillingForm = () => {
                               } else {
                                 navigateCell(idx, COL_QTY, 1);
                               }
-                            } else if (e.key === 'ArrowLeft') {
-                              e.preventDefault(); navigateCell(idx, COL_QTY, -1);
-                            } else if (e.key === 'Enter') {
+                            } else if (e.key === 'Backspace' && !e.currentTarget.value) {
                               e.preventDefault();
-                              updateRow(idx, { Qty: e.currentTarget.value });
-                              if (mergeDuplicateProductQuantity(idx, e.currentTarget.value)) {
-                                e.currentTarget.dataset.skipDuplicateMerge = 'true';
-                              } else {
-                                navigateCell(idx, COL_QTY, 1);
-                              }
+                              navigateCell(idx, COL_QTY, -1);
                             }
                           }}
                           style={{textAlign:'right'}}
@@ -1871,7 +1968,7 @@ const BillingForm = () => {
                             priceCodes={priceCodes}
                             value={row.PriceCodeID}
                             onChange={pcid => handlePriceCodeChange(idx, pcid)}
-                            disabled={saving || !row.ProductID}
+                            disabled={saving || isReadOnly || !row.ProductID}
                             productData={row.productData}
                             rowKey={row._key}
                             inputRef={el => setCellRef(idx, COL_PRICE_CODE, el)}
@@ -1887,7 +1984,7 @@ const BillingForm = () => {
                           className="bf-input"
                           type="number" min="0" step="0.01"
                           value={row.changeableRate || row.rate}
-                          disabled={saving || !row.ProductID}
+                          disabled={saving || isReadOnly || !row.ProductID}
                           placeholder="0.00"
                           ref={el => setCellRef(idx, COL_RATE, el)}
                           data-sales-rate="true"
@@ -1897,11 +1994,7 @@ const BillingForm = () => {
                               e.preventDefault();
                               updateRow(idx, { changeableRate: e.currentTarget.value });
                               navigateCell(idx, COL_RATE, 1, { changeableRate: e.currentTarget.value });
-                            } else if (e.key === 'ArrowRight') {
-                              e.preventDefault();
-                              updateRow(idx, { changeableRate: e.currentTarget.value });
-                              navigateCell(idx, COL_RATE, 1, { changeableRate: e.currentTarget.value });
-                            } else if (e.key === 'ArrowLeft') {
+                            } else if (e.key === 'Backspace' && !e.currentTarget.value) {
                               e.preventDefault();
                               updateRow(idx, { changeableRate: e.currentTarget.value });
                               navigateCell(idx, COL_RATE, -1, { changeableRate: e.currentTarget.value });
@@ -1922,10 +2015,10 @@ const BillingForm = () => {
                         ref={el => setCellRef(idx, COL_AMOUNT, el)}
                         tabIndex={-1}
                         onKeyDown={e => {
-                          if (e.key === 'Enter' || e.key === 'ArrowRight') {
+                          if (e.key === 'Enter') {
                             e.preventDefault();
-                            navigateCell(idx, COL_AMOUNT, 1);
-                          } else if (e.key === 'ArrowLeft') {
+                            completeRowAndFocusCancel(idx);
+                          } else if (e.key === 'Backspace') {
                             e.preventDefault();
                             navigateCell(idx, COL_AMOUNT, -1);
                           }
@@ -1940,16 +2033,16 @@ const BillingForm = () => {
 
                       {/* Remove */}
                       <td className="bf-td" style={{textAlign:'center',paddingLeft:0,paddingRight:4}}>
-                        <button
+                        {!isReadOnly && <button
                           ref={el => { rowCloseRefs.current[idx] = el; }}
                           type="button"
                           className="remove-btn"
                           tabIndex={-1}
                           title="Remove row"
-                          disabled={saving}
+                          disabled={saving || isReadOnly}
                           onClick={() => removeRow(idx)}>
                           <XIcon/>
-                        </button>
+                        </button>}
                       </td>
                     </tr>
                   );
@@ -1978,7 +2071,7 @@ const BillingForm = () => {
         <div className="form-actions-bar sales-entry-actions" style={{display:'flex',justifyContent:'center',alignItems:'center',
           gap:'.625rem',marginTop:'1rem',flexWrap:'wrap'}}>
           {/* Delete button — only on edit mode, admin only */}
-          {isEdit && isAdmin && (
+          {isEdit && isAdmin && !isReadOnly && (
             <button type="button"
               onClick={() => setShowDel(true)}
               disabled={saving || deleting}
@@ -2000,9 +2093,9 @@ const BillingForm = () => {
               border:'1.5px solid var(--border-input)',background:'transparent',
               cursor:saving?'not-allowed':'pointer',fontSize:'.84rem',fontWeight:600,
               color:'var(--text-muted)',transition:'all .15s',opacity:saving?.6:1}}>
-            Cancel
+            {isReadOnly ? 'Back' : 'Cancel'}
           </button>
-          <button
+          {!isReadOnly && <button
             ref={saveBtnRef}
             type="button"
             onClick={handleSave}
@@ -2014,7 +2107,7 @@ const BillingForm = () => {
               fontSize:'.84rem',display:'flex',alignItems:'center',gap:'.4rem',
               transition:'all .15s',boxShadow: canSave ? `0 3px 12px ${BRAND}44` : 'none'}}>
             {saving ? <><Spin/> Saving…</> : '✓ Save Sales Bill'}
-          </button>
+          </button>}
         </div>
 
         {/* Delete confirm modal */}

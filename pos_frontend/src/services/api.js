@@ -141,7 +141,7 @@ api.interceptors.response.use(
     const originalRequest = error.config;
 
     // If 401 and not already retrying, try to refresh token
-    if (error.response?.status === 401 && !originalRequest?.skipAuth && !isPublicRequest(originalRequest?.url) && !originalRequest._retry) {
+    if (error.response?.status === 401 && !originalRequest?.skipAuth && !originalRequest?.noAuthRetry && !isPublicRequest(originalRequest?.url) && !originalRequest._retry) {
       originalRequest._retry = true;
 
       try {

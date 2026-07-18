@@ -5,6 +5,7 @@ import api from './api';
 
 let unitsCache = null;
 let unitsPromise = null;
+const PRODUCT_IMPORT_TIMEOUT_MS = 120000;
 
 const clearProductServiceCache = () => {
   unitsCache = null;
@@ -71,6 +72,10 @@ const productService = {
     if (options.updateExisting) form.append('update_existing', 'true');
     const response = await api.post('/products/import/', form, {
       headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: PRODUCT_IMPORT_TIMEOUT_MS,
+      signal: options.signal,
+      dedupe: false,
+      noAuthRetry: true,
     });
     notifyProductsChanged();
     return response.data;

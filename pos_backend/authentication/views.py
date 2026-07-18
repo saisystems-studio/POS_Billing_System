@@ -10,10 +10,13 @@ Provides:
 """
 
 from rest_framework import generics, status
+from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
-from rest_framework_simplejwt.views import TokenObtainPairView
+from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.exceptions import TokenError, InvalidToken
 from django.contrib.auth import get_user_model
 
 from .serializers import (
@@ -22,6 +25,8 @@ from .serializers import (
     ProfileUpdateSerializer,
     ChangePasswordSerializer,
     UserListSerializer,
+    CustomTokenRefreshSerializer,
+    revoke_refresh_token,
 )
 from .permissions import IsAdminRole
 
@@ -71,6 +76,36 @@ class CustomTokenObtainPairView(TokenObtainPairView):
     }
     """
     serializer_class = CustomTokenObtainPairSerializer
+
+
+class CustomTokenRefreshView(TokenRefreshView):
+    """
+    Refresh endpoint backed by the custom revoked-token table.
+    """
+
+    serializer_class = CustomTokenRefreshSerializer
+
+
+class LogoutView(APIView):
+    """
+    Revoke the submitted refresh token without using Simple JWT blacklist tables.
+    """
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def post(self, request, *args, **kwargs):
+        raw_refresh = request.data.get('refresh')
+        if not raw_refresh:
+            return Response({'detail': 'Refresh token is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            refresh = RefreshToken(raw_refresh)
+            revoke_refresh_token(refresh)
+        except TokenError as exc:
+            raise InvalidToken(exc.args[0]) from exc
+
+        return Response({'detail': 'Logged out successfully.'}, status=status.HTTP_200_OK)
 
 
 class RegisterView(generics.CreateAPIView):

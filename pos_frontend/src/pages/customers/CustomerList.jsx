@@ -107,6 +107,7 @@ const CustomerList = () => {
   const [search,    setSearch]    = useState('');
   const [deb,       setDeb]       = useState('');
   const [page,      setPage]      = useState(1);
+  const [loadedPage,setLoadedPage]= useState(1);
   const [total,     setTotal]     = useState(0);
   const [error,     setError]     = useState('');
   const [showDel,    setShowDel]    = useState(false);
@@ -228,6 +229,7 @@ const CustomerList = () => {
       const cachedRows = cached.results !== undefined ? cached.results : (Array.isArray(cached) ? cached : []);
       setCustomers(cachedRows);
       setTotal(cached.count ?? cachedRows.length);
+      setLoadedPage(page);
       setLoading(false);
     } else {
       setLoading(true);
@@ -238,6 +240,7 @@ const CustomerList = () => {
       if (seq !== fetchSeqRef.current) return;
       if (data.results !== undefined) { setCustomers(data.results); setTotal(data.count); }
       else { setCustomers(Array.isArray(data)?data:[]); setTotal(Array.isArray(data)?data.length:0); }
+      setLoadedPage(page);
       const rows = data.results !== undefined ? data.results : (Array.isArray(data) ? data : []);
       const totalCount = data.count ?? rows.length;
       const maxPage = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
@@ -500,9 +503,9 @@ const CustomerList = () => {
   const buildPages = () => {
     if (totalPages <= 7) return Array.from({length:totalPages},(_,i)=>i+1);
     const pages = [];
-    if (page<=4) pages.push(1,2,3,4,5,'â€¦',totalPages);
-    else if (page>=totalPages-3) pages.push(1,'â€¦',totalPages-4,totalPages-3,totalPages-2,totalPages-1,totalPages);
-    else pages.push(1,'â€¦',page-1,page,page+1,'â€¦',totalPages);
+    if (loadedPage<=4) pages.push(1,2,3,4,5,'â€¦',totalPages);
+    else if (loadedPage>=totalPages-3) pages.push(1,'â€¦',totalPages-4,totalPages-3,totalPages-2,totalPages-1,totalPages);
+    else pages.push(1,'â€¦',loadedPage-1,loadedPage,loadedPage+1,'â€¦',totalPages);
     return pages;
   };
 
@@ -636,13 +639,9 @@ const CustomerList = () => {
                 )}
               >
                     {customers.length === 0 ? (
-                      <tr>
-                        <td colSpan={isAdmin?8:7} className="professional-list-empty-state">
-                          <div style={{fontSize:'1rem',marginBottom:'.5rem',fontWeight:800}}>No data</div>
-                          <div>{deb?`No customers matching "${deb}"`:'No customers yet. Add your first customer.'}</div>
-                          <button className="btn btn-primary btn-sm" onClick={() => navigate('/customers/new')} style={{marginTop:'.75rem'}}>
-                            <PlusIcon/> Add Customer
-                          </button>
+                      <tr className="customer-empty-row">
+                        <td colSpan={isAdmin?8:7} className="customer-empty-cell">
+                          {deb ? 'No matching records found' : 'No records found'}
                         </td>
                       </tr>
                     ) : customers.map((c, idx) => {
@@ -668,8 +667,8 @@ const CustomerList = () => {
                                 style={{accentColor:'#8A5125',width:14,height:14}}/>
                             </td>
                           )}
-                          <td className="customer-cell-sno" title={`${(page-1)*PAGE_SIZE+idx+1}`}>
-                            {(page-1)*PAGE_SIZE+idx+1}
+                          <td className="customer-cell-sno" title={`${(loadedPage-1)*PAGE_SIZE+idx+1}`}>
+                            {(loadedPage-1)*PAGE_SIZE+idx+1}
                           </td>
                           <td className="customer-cell-code" title={code || '--'}>
                             <code>{code || '--'}</code>
@@ -699,16 +698,16 @@ const CustomerList = () => {
 
               <div className="table-pagination-footer">
                 <div className="product-record-info">
-                  Showing {customers.length ? ((page - 1) * PAGE_SIZE) + 1 : 0}-{Math.min(page * PAGE_SIZE, total)} of {total} records
+                  Showing {customers.length ? `${((loadedPage - 1) * PAGE_SIZE) + 1}-${Math.min(((loadedPage - 1) * PAGE_SIZE) + customers.length, total)}` : <>0&ndash;0</>} of {total} records
                 </div>
                 <div className="pagination" style={{marginTop:0}}>
-                  <button className="pg-item" disabled={page===1} onClick={() => setPage(p=>p-1)}>Previous</button>
+                  <button className="pg-item" disabled={loadedPage===1 || total===0} onClick={() => setPage(Math.max(1,loadedPage-1))}>Previous</button>
                   {total > 0 && buildPages().map((n,i) =>
                     n==='...' || n==='â€¦'
                       ? <span key={`e${i}`} className="pg-item" style={{border:'none',cursor:'default',color:'var(--text-muted)'}}>...</span>
-                      : <button key={n} className={`pg-item${page===n?' active':''}`} onClick={() => setPage(n)}>{n}</button>
+                      : <button key={n} className={`pg-item${loadedPage===n?' active':''}`} onClick={() => setPage(n)}>{n}</button>
                   )}
-                  <button className="pg-item" disabled={page===totalPages || total===0} onClick={() => setPage(p=>p+1)}>Next</button>
+                  <button className="pg-item" disabled={loadedPage===totalPages || total===0} onClick={() => setPage(Math.min(totalPages,loadedPage+1))}>Next</button>
                 </div>
               </div>
         </div>

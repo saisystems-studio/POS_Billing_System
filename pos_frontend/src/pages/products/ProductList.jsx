@@ -6,19 +6,32 @@ import ConfirmModal from '../../components/ConfirmModal';
 import RowActionPopup from '../../components/RowActionPopup';
 import productService from '../../services/productService';
 import productGroupService from '../../services/productGroupService';
-import { fetchCachedPage, getCachedPage, makePageKey, prefetchCachedPage } from '../../services/pageCache';
+import { clearPageCache, fetchCachedPage, getCachedPage, makePageKey, prefetchCachedPage } from '../../services/pageCache';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { Upload, Download, FileDown, FileSpreadsheet, FileText } from 'lucide-react';
+import {
+  formatBackendImportError as formatImportErrorMessage,
+  getImportToast,
+  isCanceledImport,
+  isTimeoutImport,
+} from '../../utils/excelImportFeedback';
 
 const TrashIcon  = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{width:14,height:14}}><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>;
 const ViewIcon   = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{width:14,height:14}}><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>;
 const SearchIcon = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{width:15,height:15}}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>;
 const PlusIcon   = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{width:14,height:14}}><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>;
 const CloseIcon  = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{width:14,height:14}}><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>;
+const ImportSpin = () => (
+  <svg className="import-loading-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M6 3h12M6 21h12M8 3c0 4 2.5 5.5 4 7 1.5-1.5 4-3 4-7M8 21c0-4 2.5-5.5 4-7 1.5 1.5 4 3 4 7"/>
+  </svg>
+);
 
 const PAGE_SIZE = 13;
 const BLANK = '\u2014';
+const PRICE_CODE_PAGE_STORAGE_KEY = 'price-code-list-page';
+const PRICE_CODE_CACHE_STORAGE_KEY = 'price-code-list-cache-v1';
 const retailPrice = (p) => {
   if (p.RetailPrice != null && p.RetailPrice !== '') return Number(p.RetailPrice);
   const tier = (p.prices || []).find(x => x.PriceName === 'Retail' || x.PriceCodeName === 'Retail');
@@ -121,6 +134,7 @@ const ProductList = () => {
   const [statusFilter,setStatusFilter]= useState('');
   const [groups,      setGroups]     = useState([]);
   const [page,        setPage]       = useState(1);
+  const [loadedPage,  setLoadedPage] = useState(1);
   const [total,       setTotal]      = useState(0);
   const [error,       setError]      = useState('');
   const [showDel,     setShowDel]    = useState(false);
@@ -132,11 +146,14 @@ const ProductList = () => {
   const [hoveredProductId, setHoveredProductId] = useState(null);
   const [dismissedActionProductId, setDismissedActionProductId] = useState(null);
   const [showDataMenu, setShowDataMenu] = useState(false);
+  const [importing, setImporting] = useState(false);
   const exportBtnRef  = useRef(null);
   const dropMenuRef   = useRef(null);
   const fileInputRef  = useRef(null);
   const searchInputRef = useRef(null);
   const fetchSeqRef = useRef(0);
+  const importAbortRef = useRef(null);
+  const navigationLockRef = useRef(false);
   const [dropPos, setDropPos] = useState({ top: 0, right: 0 });
 
   // Position portal dropdown under the Export button
@@ -149,7 +166,7 @@ const ProductList = () => {
 
   const multiSelectActive = selected.size > 1;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const pageStartIndex = (page - 1) * PAGE_SIZE;
+  const pageStartIndex = (loadedPage - 1) * PAGE_SIZE;
 
   useEffect(() => {
     if (page > totalPages) setPage(totalPages);
@@ -203,42 +220,45 @@ const ProductList = () => {
 
   useEffect(() => { setPage(1); }, [groupFilter, statusFilter]);
 
-  const fetchProducts = useCallback(async () => {
+  const fetchProducts = useCallback(async (options = {}) => {
     const seq = ++fetchSeqRef.current;
-    const params = { page, page_size: PAGE_SIZE, ordering: 'id' };
+    const requestedPage = options.page ?? page;
+    const params = { page: requestedPage, page_size: PAGE_SIZE, ordering: 'id' };
     if (debSearch)   params.search   = debSearch;
-    if (groupFilter) params.group_id = groupFilter;
-    if (statusFilter) params.is_active = statusFilter;
+    if (groupFilter) params.group = groupFilter;
+    if (statusFilter) params.status = statusFilter;
     const cacheKey = makePageKey('products', params);
-    const cached = getCachedPage('products', cacheKey);
+    const cached = options.force ? null : getCachedPage('products', cacheKey);
     if (cached) {
       const cachedRows = cached.results !== undefined ? cached.results : (Array.isArray(cached) ? cached : []);
       setProducts(cachedRows);
       setTotal(cached.count ?? cachedRows.length);
+      setLoadedPage(requestedPage);
       setLoading(false);
     } else {
       setLoading(true);
     }
     setError('');
     try {
-      const { data } = await fetchCachedPage('products', cacheKey, () => productService.getProducts(params), { force: Boolean(cached) });
+      const { data } = await fetchCachedPage('products', cacheKey, () => productService.getProducts(params), { force: options.force || Boolean(cached) });
       if (seq !== fetchSeqRef.current) return;
       const rows = data.results !== undefined ? data.results : (Array.isArray(data) ? data : []);
       setProducts(rows);
       setTotal(data.count ?? rows.length);
+      setLoadedPage(requestedPage);
       const totalCount = data.count ?? rows.length;
       const maxPage = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
-      [page - 1, page + 1].filter(n => n >= 1 && n <= maxPage).forEach(n => {
+      [requestedPage - 1, requestedPage + 1].filter(n => n >= 1 && n <= maxPage).forEach(n => {
         const nextParams = { ...params, page: n };
         prefetchCachedPage('products', makePageKey('products', nextParams), () => productService.getProducts(nextParams));
       });
     } catch (err) {
       if (seq !== fetchSeqRef.current) return;
-      if (!cached && products.length === 0) setError(err.response?.data?.detail || 'Unable to retrieve data. Please retry.');
+      if (!cached) setError(err.response?.data?.detail || 'Unable to retrieve data. Please retry.');
     } finally {
       if (seq === fetchSeqRef.current) setLoading(false);
     }
-  }, [page, debSearch, groupFilter, statusFilter, products.length]);
+  }, [page, debSearch, groupFilter, statusFilter]);
 
   useEffect(() => { fetchProducts(); }, [fetchProducts]);
 
@@ -268,19 +288,48 @@ const ProductList = () => {
     'input, select, textarea, button, a, [role="button"], .pagination, .row-action-popup'
   ));
 
+  const openProductEditPage = useCallback((product) => {
+    if (!product?.id || navigationLockRef.current) return;
+    navigationLockRef.current = true;
+    navigate(`/products/${product.id}`);
+    setTimeout(() => {
+      navigationLockRef.current = false;
+    }, 600);
+  }, [navigate]);
+
   const selectProduct = (id) => {
     setSelectedProductId(id);
     setSelected(id ? new Set([id]) : new Set());
     setDismissedActionProductId(null);
   };
 
-  const moveRowSelection = (delta, open = false) => {
+  const moveRowSelection = (delta) => {
     if (!products.length) return;
-    const currentIndex = Math.max(0, products.findIndex(p => p.id === selectedProductId));
-    const nextIndex = Math.min(products.length - 1, Math.max(0, currentIndex + delta));
+    const currentIndex = products.findIndex(p => p.id === selectedProductId);
+    const fallbackIndex = delta > 0 ? -1 : products.length;
+    const nextIndex = Math.min(products.length - 1, Math.max(0, (currentIndex >= 0 ? currentIndex : fallbackIndex) + delta));
     const next = products[nextIndex];
     selectProduct(next.id);
-    if (open) openProductDetails(next);
+  };
+
+  const handleTableFocus = (event) => {
+    if (event.target !== event.currentTarget) return;
+    if (!products.length || selectedProductId) return;
+    selectProduct(products[0].id);
+  };
+
+  const handleRowClick = (event, productId) => {
+    if (isInteractiveTarget(event.target)) return;
+    event.currentTarget.closest('.product-table-zone')?.focus();
+    selectProduct(productId);
+  };
+
+  const handleRowDoubleClick = (event, product) => {
+    if (isInteractiveTarget(event.target)) return;
+    event.preventDefault();
+    event.currentTarget.closest('.product-table-zone')?.focus();
+    selectProduct(product.id);
+    openProductEditPage(product);
   };
 
   const handleListKeyDown = (e) => {
@@ -295,8 +344,7 @@ const ProductList = () => {
       e.preventDefault();
       const active = products.find(p => p.id === selectedProductId) || products[0];
       if (!active) return;
-      if (isAdmin) navigate(`/products/${active.id}`);
-      else openProductDetails(active);
+      openProductEditPage(active);
     } else if (e.key === 'Escape') {
       setDismissedActionProductId(hoveredProductId ?? selectedProductId);
       setHoveredProductId(null);
@@ -351,8 +399,8 @@ const ProductList = () => {
     try {
       const params = { all: 'true', ordering: 'id' };
       if (debSearch) params.search = debSearch;
-      if (groupFilter) params.group_id = groupFilter;
-      if (statusFilter) params.is_active = statusFilter;
+      if (groupFilter) params.group = groupFilter;
+      if (statusFilter) params.status = statusFilter;
       const data = await productService.getProducts(params);
       return data.results ?? (Array.isArray(data) ? data : products);
     } catch {
@@ -546,53 +594,72 @@ const ProductList = () => {
     URL.revokeObjectURL(url);
   };
 
-  const formatImportSummary = (summary = {}) => {
-    return `Products created: ${summary.products_created ?? 0}, Products restored: ${summary.products_restored ?? 0}, Existing products skipped: ${summary.existing_products_skipped ?? summary.products_skipped_as_duplicates ?? summary.rows_skipped ?? 0}, Prices created: ${summary.prices_created ?? 0}, Prices updated: ${summary.prices_updated ?? 0}.`;
-  };
-
-  const formatImportRejection = (data = {}) => {
-    const summary = data.summary || {};
-    const rows = data.rejected_rows || data.errors || [];
-    const counts = `Imported: ${summary.imported_rows ?? summary.products_created ?? 0}, Rejected: ${summary.rejected_rows ?? summary.rows_failed ?? rows.length}, Duplicate: ${summary.duplicate_rows ?? summary.products_skipped_as_duplicates ?? 0}.`;
-    const reasons = rows.slice(0, 5).map(e => `Row ${e.row}: ${e.reason || e.error}`).join(' | ');
-    return `Excel Import Rejected. ${counts}${reasons ? ` ${reasons}` : ''}`;
+  const showImportToast = (result = {}) => {
+    const toastData = getImportToast(result);
+    toast.push(toastData);
   };
 
   const handleImportFile = async (event) => {
     setShowDataMenu(false);
     const file = event.target.files?.[0];
-    if (!file) return;
+    if (!file || importing) {
+      event.target.value = '';
+      return;
+    }
+    setError('');
     const submit = async () => {
-      const result = await productService.importProducts(file, { importedPage: 'product-list' });
-      const summaryText = `${result.message || 'Import completed.'} ${formatImportSummary(result.summary || result)}`;
-      setError(summaryText);
-      toast.success('Imported', summaryText);
-      await fetchProducts();
+      const controller = new AbortController();
+      importAbortRef.current = controller;
+      const result = await productService.importProducts(file, { importedPage: 'product-list', signal: controller.signal });
+      showImportToast(result);
+      clearPageCache('products');
+      clearPageCache('price-code-list');
+      sessionStorage.removeItem(PRICE_CODE_CACHE_STORAGE_KEY);
+      sessionStorage.setItem(PRICE_CODE_PAGE_STORAGE_KEY, '1');
+      if (page === 1) {
+        try {
+          await fetchProducts({ page: 1, force: true });
+        } catch {
+          // The import already succeeded; keep the backend response visible.
+        }
+      } else {
+        setPage(1);
+      }
     };
+    setImporting(true);
     try {
       await submit();
     } catch (err) {
+      if (isCanceledImport(err)) {
+        const msg = 'Product import request was canceled before the server responded.';
+        toast.push({ type: 'warning', title: 'Import Canceled', message: msg, duration: 10000 });
+        return;
+      }
+      if (isTimeoutImport(err)) {
+        const msg = 'Request timed out. The upload is taking longer than expected.';
+        toast.push({ type: 'error', title: 'Request timed out', message: msg, duration: 10000 });
+        return;
+      }
       const data = err.response?.data;
-      if (data?.duplicate_import) {
-        const msg = 'All products in this Excel already exist. No duplicate data was stored.';
-        setError(msg);
-        toast.warning('Import Skipped', msg);
-      } else if (data?.errors) {
+      if (data?.errors || data?.rejected_rows || data?.summary) {
         downloadErrorExcel(data);
-        setError(formatImportRejection(data));
+        showImportToast(data);
       } else {
-        setError(data?.detail ? `Excel Import Rejected. ${data.detail}` : 'Excel Import Rejected. Please correct the highlighted rows and upload it again.');
+        const msg = formatImportErrorMessage(err);
+        toast.push({ type: 'error', title: 'Excel Import Rejected', message: msg, duration: 10000 });
       }
     } finally {
+      if (importAbortRef.current?.signal) importAbortRef.current = null;
+      setImporting(false);
       event.target.value = '';
     }
   };
 
   const buildPages = () => {
     if (totalPages <= 7) return Array.from({ length: totalPages }, (_, i) => i + 1);
-    if (page <= 4) return [1, 2, 3, 4, 5, '...', totalPages];
-    if (page >= totalPages - 3) return [1, '...', totalPages - 4, totalPages - 3, totalPages - 2, totalPages - 1, totalPages];
-    return [1, '...', page - 1, page, page + 1, '...', totalPages];
+    if (loadedPage <= 4) return [1, 2, 3, 4, 5, '...', totalPages];
+    if (loadedPage >= totalPages - 3) return [1, '...', totalPages - 4, totalPages - 3, totalPages - 2, totalPages - 1, totalPages];
+    return [1, '...', loadedPage - 1, loadedPage, loadedPage + 1, '...', totalPages];
   };
 
   return (
@@ -627,8 +694,8 @@ const ProductList = () => {
               <TrashIcon/> Delete ({selected.size})
             </button>
           )}
-          <button className="btn btn-outline-secondary btn-sm" onClick={() => { fileInputRef.current?.click(); }}>
-            <Upload size={14}/> Import
+          <button className="btn btn-outline-secondary btn-sm" onClick={() => { if (!importing) fileInputRef.current?.click(); }} disabled={importing}>
+            {importing ? <ImportSpin/> : <Upload size={14}/>} {importing ? 'Importing...' : 'Import'}
           </button>
           <button className="btn btn-outline-secondary btn-sm" onClick={handleDownloadTemplate}>
             <Download size={14}/> Download Template
@@ -691,7 +758,7 @@ const ProductList = () => {
       <div className={`product-list-workspace${viewMore ? ' drawer-open' : ''}`}>
         <div className="card animate-in animate-in-1 product-list-card">
           <div className="card-body">
-                <div className="product-table-zone" tabIndex={0} onKeyDown={handleListKeyDown}>
+                <div className="product-table-zone" tabIndex={0} onKeyDown={handleListKeyDown} onFocus={handleTableFocus}>
                   <div className={`table-wrapper table-wrapper-scroll${!loading && products.length===0 ? ' is-empty' : ''}`}>
                     <table className="product-list-table">
                       <colgroup>
@@ -727,13 +794,9 @@ const ProductList = () => {
 
                       <tbody>
                     {products.length===0 ? (
-                      <tr>
-                        <td colSpan={8} className="professional-list-empty-state">
-                          <div style={{fontSize:'1rem',marginBottom:'.5rem',fontWeight:800}}>No data</div>
-                          <div>{debSearch?`No products matching "${debSearch}"`:'No products yet. Add your first product.'}</div>
-                          <button className="btn btn-primary btn-sm" onClick={() => navigate('/products/new')} style={{marginTop:'.75rem'}}>
-                            <PlusIcon/> Add Product
-                          </button>
+                      <tr className="product-empty-row">
+                        <td colSpan={8} className="product-empty-cell">
+                          {debSearch || groupFilter || statusFilter ? 'No matching records found' : 'No records found'}
                         </td>
                       </tr>
                     ) : products.map((p,idx) => {
@@ -749,10 +812,16 @@ const ProductList = () => {
                           className={`table-row-hover product-list-row${isActive ? ' row-keyboard-selected' : ''}`}
                           title={name || 'Product'}
                           tabIndex={-1}
-                          onMouseEnter={(e) => { e.currentTarget.closest('.product-table-zone')?.focus(); setHoveredProductId(p.id); setSelectedProductId(p.id); setDismissedActionProductId(null); }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.closest('.product-table-zone')?.focus();
+                            setHoveredProductId(p.id);
+                            setSelectedProductId(p.id);
+                            setDismissedActionProductId(null);
+                          }}
                           onMouseLeave={() => setHoveredProductId(prev => prev === p.id ? null : prev)}
                           onFocus={() => setHoveredProductId(p.id)}
-                          onClick={() => selectProduct(p.id)}>
+                          onClick={e => handleRowClick(e, p.id)}
+                          onDoubleClick={e => handleRowDoubleClick(e, p)}>
                           <td className="row-cb-cell" onClick={e => { e.stopPropagation(); if (isAdmin) toggleSelect(p.id); }}>
                             <input type="checkbox" className="row-cb"
                               checked={selected.has(p.id)}
@@ -790,17 +859,17 @@ const ProductList = () => {
 
                 <div className="product-list-footer">
                   <div className="product-record-info">
-                    Showing {products.length ? pageStartIndex + 1 : 0}-{Math.min(pageStartIndex + products.length, total)} of {total} records
+                    Showing {products.length ? `${pageStartIndex + 1}-${Math.min(pageStartIndex + products.length, total)}` : <>0&ndash;0</>} of {total} records
                   </div>
                   <div className="product-pagination-controls">
                     <div className="pagination" style={{marginTop:0}}>
-                      <button className="pg-item" disabled={page===1} onClick={() => setPage(p=>p-1)}>Previous</button>
+                      <button className="pg-item" disabled={loadedPage===1 || total===0} onClick={() => setPage(Math.max(1,loadedPage-1))}>Previous</button>
                       {total > 0 && buildPages().map((n,i) =>
                         n==='...'
                           ? <span key={`e${i}`} className="pg-item" style={{border:'none',cursor:'default',color:'var(--text-muted)'}}>...</span>
-                          : <button key={n} className={`pg-item${page===n?' active':''}`} onClick={() => setPage(n)}>{n}</button>
+                          : <button key={n} className={`pg-item${loadedPage===n?' active':''}`} onClick={() => setPage(n)}>{n}</button>
                       )}
-                      <button className="pg-item" disabled={page===totalPages || total===0} onClick={() => setPage(p=>p+1)}>Next</button>
+                      <button className="pg-item" disabled={loadedPage===totalPages || total===0} onClick={() => setPage(Math.min(totalPages,loadedPage+1))}>Next</button>
                     </div>
                   </div>
                 </div>

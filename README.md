@@ -304,5 +304,4 @@ python manage.py collectstatic
 
 ## License
 
-<!-- Proprietary — Banu Store POS System -->
-<!-- my git demo -->
+Proprietary — Banu Store POS System
