@@ -6,6 +6,7 @@ from django.db.models import Prefetch
 from .models import Customer, CustomerPriceConfig
 from .serializers import CustomerSerializer, NextCustomerCodeSerializer, CustomerPriceConfigSerializer
 from authentication.permissions import IsAdminOrReadCreate
+from pos_backend.pagination import StableOrderingFilter
 
 
 class CustomerNextCodeView(APIView):
@@ -18,10 +19,10 @@ class CustomerNextCodeView(APIView):
 class CustomerListCreateView(generics.ListCreateAPIView):
     serializer_class   = CustomerSerializer
     permission_classes = [IsAdminOrReadCreate]
-    filter_backends    = [filters.SearchFilter, filters.OrderingFilter]
+    filter_backends    = [filters.SearchFilter, StableOrderingFilter]
     search_fields      = ['CustomerName', 'CustomerCode', 'PhoneNumber', 'EmailId']
-    ordering_fields    = ['CustomerName', 'CustomerCode', 'CreatedOn']
-    ordering           = ['-CreatedOn']
+    ordering_fields    = ['id', 'CustomerName', 'CustomerCode', 'CreatedOn']
+    ordering           = ['-CreatedOn', 'id']
 
     def get_queryset(self):
         active_configs = CustomerPriceConfig.objects.filter(IsActive=True).select_related('FixedPriceCodeID')

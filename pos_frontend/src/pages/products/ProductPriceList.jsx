@@ -204,7 +204,7 @@ const ProductPriceList = () => {
       pageCacheRef.current.delete(cacheKey);
       pageRequestsRef.current.delete(cacheKey);
       setLastLoadFailed(true);
-      if (!cached && products.length === 0) setError(err.response?.data?.detail || 'Unable to retrieve data. Retry.');
+      setError(err.response?.data?.detail || 'Unable to retrieve data. Retry.');
     } finally {
       if (seq === fetchSeqRef.current) setLoading(false);
     }

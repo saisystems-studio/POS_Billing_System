@@ -19,16 +19,17 @@ from .serializers import (
 from customers.models import Customer, CustomerPriceConfig
 from products.models import PriceCodeList
 from authentication.permissions import IsAdminOrReadCreate, IsAdminRole
+from pos_backend.pagination import StableOrderingFilter
 
 
 class BillingHeaderListView(generics.ListAPIView):
     """GET /api/billing/ — paginated bill list with search and date filters"""
     serializer_class   = BillingHeaderListSerializer
     permission_classes = [IsAdminOrReadCreate]
-    filter_backends    = [filters.SearchFilter, filters.OrderingFilter]
+    filter_backends    = [filters.SearchFilter, StableOrderingFilter]
     search_fields      = ['BillNo', 'CustomerID__CustomerName', 'CustomerID__CustomerCode']
-    ordering_fields    = ['CreatedOn', 'GrandTotal', 'BillNo']
-    ordering           = ['-CreatedOn']
+    ordering_fields    = ['id', 'CreatedOn', 'GrandTotal', 'BillNo']
+    ordering           = ['-CreatedOn', 'id']
 
     def get_queryset(self):
         qs = (

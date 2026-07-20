@@ -52,7 +52,17 @@ const trimCache = (cache, max) => {
   }
 };
 
-export const makePageKey = (namespace, params = {}, scope = 'default') =>
+const currentAuthScope = () => {
+  if (typeof localStorage === 'undefined') return 'anonymous';
+  try {
+    const user = JSON.parse(localStorage.getItem('user') || 'null');
+    return String(user?.id || user?.username || 'anonymous');
+  } catch {
+    return 'anonymous';
+  }
+};
+
+export const makePageKey = (namespace, params = {}, scope = currentAuthScope()) =>
   `${scope}|${namespace}|${stableKey(params)}`;
 
 export const clearPageCache = namespace => {

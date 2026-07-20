@@ -25,6 +25,7 @@ const ProductGroupList = () => {
   const [search,     setSearch]     = useState('');
   const [deb,        setDeb]        = useState('');
   const [page,       setPage]       = useState(1);
+  const [loadedPage, setLoadedPage] = useState(1);
   const [total,      setTotal]      = useState(0);
   const [error,      setError]      = useState('');
   const [showDel,    setShowDel]    = useState(false);
@@ -90,6 +91,7 @@ const ProductGroupList = () => {
       const rows = cached.results !== undefined ? cached.results : (Array.isArray(cached) ? cached : []);
       setGroups(rows);
       setTotal(cached.count ?? rows.length);
+      setLoadedPage(page);
       setLoading(false);
     }
     try {
@@ -102,6 +104,7 @@ const ProductGroupList = () => {
         setGroups(Array.isArray(data) ? data : []);
         setTotal(Array.isArray(data) ? data.length : 0);
       }
+      setLoadedPage(page);
       const rows = data.results !== undefined ? data.results : (Array.isArray(data) ? data : []);
       const totalCount = data.count ?? rows.length;
       const maxPage = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
@@ -111,11 +114,11 @@ const ProductGroupList = () => {
       });
     } catch (err) {
       if (seq !== fetchSeqRef.current) return;
-      if (!cached && groups.length === 0) setError(err.response?.data?.detail || 'Failed to load groups.');
+      setError(err.response?.data?.detail || 'Failed to load groups. Please retry.');
     } finally {
       if (seq === fetchSeqRef.current) setLoading(false);
     }
-  }, [page, deb, groups.length]);
+  }, [page, deb]);
 
   useEffect(() => { fetchGroups(); }, [fetchGroups]);
 
@@ -234,7 +237,7 @@ const ProductGroupList = () => {
                         onMouseLeave={() => setHoveredGroupId(prev => prev === g.id ? null : prev)}
                         onClick={() => { setSelectedGroupId(g.id); setDismissedActionGroupId(null); }}>
                         <td style={{ color: 'var(--text-muted)', fontSize: '.8125rem' }}>
-                          {(page - 1) * PAGE_SIZE + idx + 1}
+                          {(loadedPage - 1) * PAGE_SIZE + idx + 1}
                         </td>
                         <td>
                           <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
@@ -261,21 +264,21 @@ const ProductGroupList = () => {
 
               <div className="table-pagination-footer">
                 <div className="product-record-info">
-                  Showing {groups.length ? ((page - 1) * PAGE_SIZE) + 1 : 0}-{Math.min(page * PAGE_SIZE, total)} of {total} records
+                  Showing {groups.length ? ((loadedPage - 1) * PAGE_SIZE) + 1 : 0}-{Math.min(((loadedPage - 1) * PAGE_SIZE) + groups.length, total)} of {total} records
                 </div>
                 <div className="pagination" style={{ marginTop: 0 }}>
-                  <button className="pg-item" disabled={page === 1}
-                    onClick={() => setPage(p => p - 1)}>Previous</button>
+                  <button className="pg-item" disabled={loadedPage === 1 || total === 0}
+                    onClick={() => setPage(Math.max(1, loadedPage - 1))}>Previous</button>
                   {total > 0 && buildPages().map((n, i) =>
                     n === '...' || n === '…'
                       ? <span key={`e${i}`} className="pg-item"
                           style={{ border: 'none', cursor: 'default', color: 'var(--text-muted)' }}>...</span>
                       : <button key={n}
-                          className={`pg-item${page === n ? ' active' : ''}`}
-                          onClick={() => setPage(n)}>{n}</button>
+                          className={`pg-item${loadedPage === n ? ' active' : ''}`}
+                          onClick={() => setPage(Number(n))}>{n}</button>
                   )}
-                  <button className="pg-item" disabled={page === totalPages || total === 0}
-                    onClick={() => setPage(p => p + 1)}>Next</button>
+                  <button className="pg-item" disabled={loadedPage === totalPages || total === 0}
+                    onClick={() => setPage(Math.min(totalPages, loadedPage + 1))}>Next</button>
                 </div>
               </div>
           </>
