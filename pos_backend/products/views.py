@@ -3,7 +3,7 @@
 from rest_framework import generics, filters, status
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from pos_backend.pagination import StandardResultsPagination
+from pos_backend.pagination import StandardResultsPagination, StableOrderingFilter
 from django.http import HttpResponse
 from django.db import transaction
 from django.db.models import Prefetch, Q
@@ -51,10 +51,11 @@ class PriceCodePagePagination(StandardResultsPagination):
 class ProductGroupListCreateView(generics.ListCreateAPIView):
     serializer_class   = ProductGroupSerializer
     permission_classes = [IsAdminOrReadCreate]
-    filter_backends    = [filters.SearchFilter, filters.OrderingFilter]
+    filter_backends    = [filters.SearchFilter, StableOrderingFilter]
     search_fields      = ['GroupName']
     ordering_fields    = ['GroupName', 'CreatedOn']
-    ordering           = ['GroupName']
+    # SQL Server requires a deterministic tie-breaker for reliable OFFSET/FETCH.
+    ordering           = ['GroupName', 'id']
 
     def get_queryset(self):
         qs = ProductGroup.objects.select_related('CreatedBy').all()
@@ -100,10 +101,10 @@ class ProductNextCodeView(APIView):
 
 class ProductListCreateView(generics.ListCreateAPIView):
     permission_classes = [IsAdminOrReadCreate]
-    filter_backends    = [filters.SearchFilter, filters.OrderingFilter]
+    filter_backends    = [filters.SearchFilter, StableOrderingFilter]
     search_fields      = ['ProductName', 'ProductNameTamil', 'Units', 'Description', 'ProductCode']
     ordering_fields    = ['id', 'ProductName', 'CreatedOn', 'Quantity', 'GroupId__GroupName']
-    ordering           = ['-CreatedOn']
+    ordering           = ['-CreatedOn', 'id']
 
     def get_queryset(self):
         price_rows = (

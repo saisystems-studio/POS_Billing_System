@@ -381,6 +381,7 @@ const BillingList = () => {
   const [dateTo,    setDateTo]    = useState('');
   const [dateExact, setDateExact] = useState('');
   const [page,      setPage]      = useState(1);
+  const [loadedPage,setLoadedPage]= useState(1);
   const [total,     setTotal]     = useState(0);
   const [error,     setError]     = useState('');
 
@@ -489,6 +490,7 @@ const BillingList = () => {
       const cachedRows = cached.results !== undefined ? cached.results : (Array.isArray(cached) ? cached : []);
       setBillings(cachedRows);
       setTotal(cached.count ?? cachedRows.length);
+      setLoadedPage(page);
       setLoading(false);
     } else {
       setLoading(true);
@@ -499,6 +501,7 @@ const BillingList = () => {
       if (seq !== fetchSeqRef.current) return;
       if (data.results !== undefined) { setBillings(data.results); setTotal(data.count); }
       else { setBillings(Array.isArray(data)?data:[]); setTotal(Array.isArray(data)?data.length:0); }
+      setLoadedPage(page);
       const rows = data.results !== undefined ? data.results : (Array.isArray(data) ? data : []);
       const totalCount = data.count ?? rows.length;
       const maxPage = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
@@ -508,11 +511,11 @@ const BillingList = () => {
       });
     } catch (err) {
       if (seq !== fetchSeqRef.current) return;
-      if (!cached && billings.length === 0) setError(err.response?.data?.detail || 'Unable to retrieve data.');
+      setError(err.response?.data?.detail || 'Unable to retrieve data. Please retry.');
     } finally {
       if (seq === fetchSeqRef.current) setLoading(false);
     }
-  }, [page, deb, dateMode, dateFrom, dateTo, dateExact, billings.length]);
+  }, [page, deb, dateMode, dateFrom, dateTo, dateExact]);
 
   useEffect(() => { fetchBillings(); }, [fetchBillings]);
 
@@ -868,7 +871,7 @@ td.bold{font-weight:700}td.mono{font-family:'Courier New',monospace;font-size:9p
                           onClick={() => openBillingViewMode(b, idx)}
                           onDoubleClick={() => openBillingEditMode(b, idx)}>
                           <td style={{color:'var(--text-muted)',fontSize:'.76rem',fontVariantNumeric:'tabular-nums',textAlign:'center'}}>
-                            {(page-1)*PAGE_SIZE+idx+1}
+                            {(loadedPage-1)*PAGE_SIZE+idx+1}
                           </td>
                           <td className="sales-report-particular">
                             <div style={{fontWeight:700,color:'var(--text-primary)',fontSize:'.83rem'}}>{b.CustomerName}</div>
@@ -903,16 +906,16 @@ td.bold{font-weight:700}td.mono{font-family:'Courier New',monospace;font-size:9p
 
               <div className="table-pagination-footer">
                 <div className="product-record-info">
-                  Showing {billings.length ? ((page - 1) * PAGE_SIZE) + 1 : 0}-{Math.min(page * PAGE_SIZE, total)} of {total} records
+                  Showing {billings.length ? ((loadedPage - 1) * PAGE_SIZE) + 1 : 0}-{Math.min(((loadedPage - 1) * PAGE_SIZE) + billings.length, total)} of {total} records
                 </div>
                 <div className="pagination" style={{marginTop:0}}>
-                  <button className="pg-item" disabled={page===1} onClick={() => setPage(p=>p-1)}>Previous</button>
+                  <button className="pg-item" disabled={loadedPage===1 || total===0} onClick={() => setPage(Math.max(1,loadedPage-1))}>Previous</button>
                   {total > 0 && buildPages().map((n,i) =>
                     n==='...' || n==='â€¦'
                       ? <span key={`e${i}`} className="pg-item" style={{border:'none',cursor:'default',color:'var(--text-muted)'}}>...</span>
-                      : <button key={n} className={`pg-item${page===n?' active':''}`} onClick={() => setPage(n)}>{n}</button>
+                      : <button key={n} className={`pg-item${loadedPage===n?' active':''}`} onClick={() => setPage(Number(n))}>{n}</button>
                   )}
-                  <button className="pg-item" disabled={page===totalPages || total===0} onClick={() => setPage(p=>p+1)}>Next</button>
+                  <button className="pg-item" disabled={loadedPage===totalPages || total===0} onClick={() => setPage(Math.min(totalPages,loadedPage+1))}>Next</button>
                 </div>
               </div>
           </>

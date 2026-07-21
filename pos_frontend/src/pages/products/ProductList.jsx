@@ -254,7 +254,7 @@ const ProductList = () => {
       });
     } catch (err) {
       if (seq !== fetchSeqRef.current) return;
-      if (!cached) setError(err.response?.data?.detail || 'Unable to retrieve data. Please retry.');
+      setError(err.response?.data?.detail || 'Unable to retrieve data. Please retry.');
     } finally {
       if (seq === fetchSeqRef.current) setLoading(false);
     }
