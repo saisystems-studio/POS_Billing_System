@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import companyService from '../services/companyService';
 import loginIllustration from '../assets/login.png';
+import posLogo from '../assets/pos-logo.svg';
 
 /* ═══════════ ICONS ═══════════ */
 const CartIcon = () => (
@@ -80,8 +81,6 @@ const NeonBorderTrace = () => {
   const beamLen = P - 700;   // ~2075 of 2775 = roughly ¾ of perimeter
   const gap     = 700;
 
-  const dur = '8s'; // slow
-
   const rectPath = `M ${R} 0 L ${W-R} 0 Q ${W} 0 ${W} ${R} L ${W} ${H-R} Q ${W} ${H} ${W-R} ${H} L ${R} ${H} Q 0 ${H} 0 ${H-R} L 0 ${R} Q 0 0 ${R} 0 Z`;
 
   return (
@@ -101,24 +100,18 @@ const NeonBorderTrace = () => {
       </defs>
 
       {/* Bloom layer — wide soft glow around full border */}
-      <path d={rectPath} fill="none" stroke="#B58270" strokeWidth="12" strokeOpacity="0.38"
+      <path className="neon-border-trace" pathLength="100" d={rectPath} fill="none" stroke="#B58270" strokeWidth="12" strokeOpacity="0.38"
         filter="url(#lp-neon-bloom)"
-        strokeDasharray={`${beamLen} ${gap}`} strokeDashoffset="0" strokeLinecap="butt">
-        <animate attributeName="stroke-dashoffset" from="0" to={-P} dur={dur} repeatCount="indefinite" calcMode="linear" />
-      </path>
+        strokeDasharray="75 25" strokeDashoffset="0" strokeLinecap="butt" />
 
       {/* Mid glow */}
-      <path d={rectPath} fill="none" stroke="#C9906E" strokeWidth="5" strokeOpacity="0.60"
+      <path className="neon-border-trace" pathLength="100" d={rectPath} fill="none" stroke="#C9906E" strokeWidth="5" strokeOpacity="0.60"
         filter="url(#lp-neon-mid)"
-        strokeDasharray={`${beamLen} ${gap}`} strokeDashoffset="0" strokeLinecap="butt">
-        <animate attributeName="stroke-dashoffset" from="0" to={-P} dur={dur} repeatCount="indefinite" calcMode="linear" />
-      </path>
+        strokeDasharray="75 25" strokeDashoffset="0" strokeLinecap="butt" />
 
       {/* Bright core — crisp thin line */}
-      <path d={rectPath} fill="none" stroke="#F2E0D6" strokeWidth="1.5" strokeOpacity="0.95"
-        strokeDasharray={`${beamLen} ${gap}`} strokeDashoffset="0" strokeLinecap="butt">
-        <animate attributeName="stroke-dashoffset" from="0" to={-P} dur={dur} repeatCount="indefinite" calcMode="linear" />
-      </path>
+      <path className="neon-border-trace" pathLength="100" d={rectPath} fill="none" stroke="#F2E0D6" strokeWidth="1.5" strokeOpacity="0.95"
+        strokeDasharray="75 25" strokeDashoffset="0" strokeLinecap="butt" />
     </svg>
   );
 };
@@ -205,7 +198,7 @@ const Login = () => {
                   {companyLogo ? (
                     <img src={companyLogo} alt={companyName} style={{width:18,height:18,objectFit:'contain',borderRadius:4}} />
                   ) : (
-                    <CartIcon />
+                    <img src={posLogo} alt="" className="lp-default-logo" />
                   )}
                 </span>
                 <span className="lp-chip-name">{companyName}</span>

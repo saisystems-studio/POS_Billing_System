@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import authService from '../services/authService';
 import loginIllustration from '../assets/login.png';
+import posLogo from '../assets/pos-logo.svg';
 
 /* ═══════════ ICONS ═══════════ */
 const CartIcon = () => (
@@ -98,20 +99,14 @@ const NeonBorderTrace = () => {
           <feMerge><feMergeNode in="b1"/><feMergeNode in="SourceGraphic"/></feMerge>
         </filter>
       </defs>
-      <path d={rectPath} fill="none" stroke="#B58270" strokeWidth="12" strokeOpacity="0.38"
+      <path className="neon-border-trace" pathLength="100" d={rectPath} fill="none" stroke="#B58270" strokeWidth="12" strokeOpacity="0.38"
         filter="url(#rp-neon-bloom)"
-        strokeDasharray={`${beamLen} 700`} strokeDashoffset="0" strokeLinecap="butt">
-        <animate attributeName="stroke-dashoffset" from="0" to={-P} dur={dur} repeatCount="indefinite" calcMode="linear" />
-      </path>
-      <path d={rectPath} fill="none" stroke="#C9906E" strokeWidth="5" strokeOpacity="0.60"
+        strokeDasharray="75 25" strokeDashoffset="0" strokeLinecap="butt" />
+      <path className="neon-border-trace" pathLength="100" d={rectPath} fill="none" stroke="#C9906E" strokeWidth="5" strokeOpacity="0.60"
         filter="url(#rp-neon-mid)"
-        strokeDasharray={`${beamLen} 700`} strokeDashoffset="0" strokeLinecap="butt">
-        <animate attributeName="stroke-dashoffset" from="0" to={-P} dur={dur} repeatCount="indefinite" calcMode="linear" />
-      </path>
-      <path d={rectPath} fill="none" stroke="#F2E0D6" strokeWidth="1.5" strokeOpacity="0.95"
-        strokeDasharray={`${beamLen} 700`} strokeDashoffset="0" strokeLinecap="butt">
-        <animate attributeName="stroke-dashoffset" from="0" to={-P} dur={dur} repeatCount="indefinite" calcMode="linear" />
-      </path>
+        strokeDasharray="75 25" strokeDashoffset="0" strokeLinecap="butt" />
+      <path className="neon-border-trace" pathLength="100" d={rectPath} fill="none" stroke="#F2E0D6" strokeWidth="1.5" strokeOpacity="0.95"
+        strokeDasharray="75 25" strokeDashoffset="0" strokeLinecap="butt" />
     </svg>
   );
 };
@@ -120,7 +115,13 @@ const NeonBorderTrace = () => {
    REGISTER PAGE
    ═══════════════════════════════════════════ */
 const Register = () => {
-  const [form, setForm]       = useState({ username: '', email: '', password: '', confirm_password: '' });
+  const [form, setForm]       = useState({
+    username: '',
+    email: '',
+    role: 'User',
+    password: '',
+    confirm_password: '',
+  });
   const [errors, setErrors]   = useState({});
   const [apiError, setApiError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -161,6 +162,7 @@ const Register = () => {
     if (!form.username.trim())        e.username = 'Username is required.';
     if (!form.email.trim())           e.email    = 'Email is required.';
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) e.email = 'Enter a valid email.';
+    if (!['Admin', 'User'].includes(form.role)) e.role = 'Select a valid role.';
     const pwdErr = validatePassword(form.password);
     if (pwdErr) e.password = pwdErr;
     if (!form.confirm_password)       e.confirm_password = 'Please confirm your password.';
@@ -186,8 +188,10 @@ const Register = () => {
         });
         setErrors(fieldErrors);
         setApiError('Please fix the errors below.');
+      } else if (err.code === 'ECONNABORTED') {
+        setApiError('Registration timed out. Check that the POS backend is running, then try again.');
       } else {
-        setApiError(data?.detail || 'Registration failed. Please try again.');
+        setApiError('Registration failed. Check the database connection and try again.');
       }
     } finally {
       setLoading(false);
@@ -203,8 +207,7 @@ const Register = () => {
       </div>
 
       {/* Card — taller than Login to fit the extra fields */}
-      <div className="lp-card" style={{ height: 620 }} role="main">
-        <NeonBorderTrace />
+      <div className="lp-card" style={{ height: 690 }} role="main">
 
         {/* LEFT */}
         <div className="lp-left" aria-hidden="true">
@@ -217,7 +220,7 @@ const Register = () => {
 
             {/* Brand */}
             <div className="lp-chip">
-              <span className="lp-chip-dot"><CartIcon /></span>
+              <span className="lp-chip-dot"><img src={posLogo} alt="" className="lp-default-logo" /></span>
               <span className="lp-chip-name">Banu Store_POS</span>
             </div>
 
@@ -275,6 +278,28 @@ const Register = () => {
                     />
                   </div>
                   {errors.email && <div className="lp-field-err">{errors.email}</div>}
+                </div>
+
+                {/* Role — backed by User.ROLE_CHOICES, not a database table */}
+                <div className="lp-field">
+                  <label className="lp-label" htmlFor="rp-role">
+                    Role <span style={{ color: 'var(--danger)' }}>*</span>
+                  </label>
+                  <div className="lp-inp-wrap">
+                    <span className="lp-inp-icon"><UserIcon /></span>
+                    <select
+                      id="rp-role"
+                      name="role"
+                      className={`lp-input${errors.role ? ' lp-input--error' : ''}`}
+                      value={form.role}
+                      onChange={change}
+                      disabled={loading}
+                    >
+                      <option value="User">User</option>
+                      <option value="Admin">Admin</option>
+                    </select>
+                  </div>
+                  {errors.role && <div className="lp-field-err">{errors.role}</div>}
                 </div>
 
                 {/* Password */}

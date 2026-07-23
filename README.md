@@ -9,10 +9,10 @@ Full-stack Point of Sale system built with Django REST Framework and React.js, b
 | Layer | Technology |
 |---|---|
 | Frontend | React 18, React Router 6, Axios, Vite |
-| Backend | Python 3.13, Django 4.2, Django REST Framework 3.15 |
+| Backend | Python 3.12+, Django 5.x, Django REST Framework |
 | Auth | SimpleJWT (access 60 min / refresh 7 days) |
-| Database | Microsoft SQL Server 2017+ (ODBC Driver 17) |
-| DB Adapter | mssql-django 1.4 (patched for SQL Server v17) |
+| Database | Microsoft SQL Server (ODBC Driver 18) |
+| DB Adapter | mssql-django + pyodbc |
 
 ---
 
@@ -301,6 +301,32 @@ python manage.py collectstatic
 ```
 
 ---
+
+## Packaged desktop application
+
+The packaged entry point is `pos_backend/launcher.py`. It selects a free
+loopback port, starts Waitress in a background thread, waits for `/health/`, and
+then opens pywebview with the QtWebEngine backend. It never uses Django's
+development `runserver`.
+
+Copy `pos_backend/.env.example` to `pos_backend/.env` and configure SQL Server,
+then run `build.bat` from the repository root. The script builds React, copies
+the Vite output into Django's static source, runs `collectstatic`, and creates
+`pos_backend/dist/POSBilling/POSBilling.exe`. Run it again after frontend
+changes. `build.sh` provides the equivalent flow on POSIX, though Windows
+executables should be built on Windows.
+
+Microsoft ODBC Driver 18 for SQL Server is a system prerequisite and cannot be
+bundled in PyInstaller. SQL Server must also be installed or reachable. Some
+machines may need the Microsoft Visual C++ Redistributable for native Python or
+ODBC components. If the shell is later changed to WebView2, its runtime is also
+a separate installer concern; this build uses Qt and does not use WebView2,
+CEF, or mshtml.
+
+The spec deliberately creates an **onedir** build. Onefile builds extract on
+each launch, which slows cold start and complicates native Qt resources.
+Unsigned PyInstaller executables can trigger antivirus heuristics or Windows
+SmartScreen; code-sign production releases.
 
 ## License
 

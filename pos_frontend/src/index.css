@@ -2744,6 +2744,16 @@ code{font-size:.75rem;background:var(--scale-100);padding:.16em .45em;border-rad
 }
 
 .lp-chip-dot svg{width:11px;height:11px;color:#fff}
+.lp-chip-dot .lp-default-logo{width:24px;height:24px;display:block}
+
+@keyframes neon-border-travel {
+  to { stroke-dashoffset: -100; }
+}
+
+.neon-border-trace {
+  animation: neon-border-travel 8s linear infinite;
+  will-change: stroke-dashoffset;
+}
 
 .lp-chip-name{font-size:.68rem;font-weight:700;color:#795D52;letter-spacing:.02em}
 
@@ -11495,4 +11505,53 @@ video {
   display: inline-block !important;
   flex: 0 0 auto !important;
   animation: spin .75s linear infinite !important;
+}
+
+/* ================================================================
+   Desktop shell scrolling
+
+   Keep navigation chrome fixed to the viewport and make the page
+   content the single vertical scroll region.  min-height: 0 is
+   required here so the flex child can shrink and scroll instead of
+   pushing list pagination below the pywebview window.
+   ================================================================ */
+
+html,
+body,
+#root {
+  height: 100%;
+  overflow: hidden;
+}
+
+.layout-container {
+  height: 100vh;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.main-content {
+  height: 100vh;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.main-content > .content {
+  flex: 1 1 auto !important;
+  height: auto !important;
+  max-height: none !important;
+  min-height: 0 !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+/* Shared by Product, Price Code, Product Group, Customer, and Billing lists. */
+.table-pagination-footer,
+.product-list-footer {
+  position: sticky !important;
+  bottom: 0;
+  z-index: 10;
+  background: var(--card-bg) !important;
+  padding-bottom: .35rem !important;
 }

@@ -27,12 +27,13 @@ const authService = {
   /**
    * Register new user
    */
-  register: async ({ username, email, password, confirm_password }) => {
+  register: async ({ username, email, password, confirm_password, role }) => {
     const response = await api.post(`${AUTH_BASE}/register/`, {
       username,
       email,
       password,
       confirm_password,
+      role,
     });
     return response.data;
   },

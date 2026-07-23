@@ -14,6 +14,11 @@ venv/
 # Frontend
 node_modules/
 dist/
+pos_backend/frontend_dist/
+pos_backend/staticfiles/
+pos_backend/build/
+pos_backend/dist/
+*.log
 
 # VS Code optional
 .vscode/

@@ -1,6 +1,7 @@
 from pathlib import Path
 from datetime import timedelta
-from decouple import config
+import sys
+from decouple import AutoConfig
 
 
 def env_bool(value):
@@ -16,14 +17,19 @@ def env_bool(value):
 # ---------------------------------------------------------------------------
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+IS_FROZEN = bool(getattr(sys, 'frozen', False))
+BUNDLE_DIR = Path(getattr(sys, '_MEIPASS', BASE_DIR))
+FRONTEND_DIST = BUNDLE_DIR / 'frontend_dist' if IS_FROZEN else BASE_DIR / 'frontend_dist'
+CONFIG_DIR = Path(sys.executable).resolve().parent if IS_FROZEN else BASE_DIR
+config = AutoConfig(search_path=str(CONFIG_DIR))
 
 # ---------------------------------------------------------------------------
 # Core security settings
 # ---------------------------------------------------------------------------
 
-SECRET_KEY = config('SECRET_KEY')
+SECRET_KEY = config('SECRET_KEY', default='development-only-change-me')
 
-DEBUG = config('DEBUG', default=False, cast=env_bool)
+DEBUG = False if IS_FROZEN else config('DEBUG', default=False, cast=env_bool)
 
 ALLOWED_HOSTS = config(
     'ALLOWED_HOSTS',
@@ -59,6 +65,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'corsheaders.middleware.CorsMiddleware',        # must be before CommonMiddleware
     'django.middleware.gzip.GZipMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
@@ -75,7 +82,7 @@ ROOT_URLCONF = 'pos_backend.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        'DIRS': [FRONTEND_DIST],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -100,13 +107,16 @@ DATABASES = {
     'default': {
         'ENGINE': 'mssql',
         'NAME': config('DB_NAME', default='BanustoresPOS_db'),
-        'USER': '',       
-        'PASSWORD': '',    
-        'HOST': config('DB_HOST', default='.\\SQLEXPRESS'),
-        'PORT': '',       
+        'USER': config('DB_USER', default=''),
+        'PASSWORD': config('DB_PASSWORD', default=''),
+        'HOST': config('DB_SERVER', default=config('DB_HOST', default='.\\SQLEXPRESS')),
+        'PORT': config('DB_PORT', default=''),
         'OPTIONS': {
-            'driver': 'ODBC Driver 17 for SQL Server',
-            'extra_params': 'Trusted_Connection=yes;TrustServerCertificate=yes;',
+            'driver': config('DB_DRIVER', default='ODBC Driver 17 for SQL Server'),
+            'extra_params': config(
+                'DB_EXTRA_PARAMS',
+                default='Trusted_Connection=yes;Encrypt=yes;TrustServerCertificate=yes;',
+            ),
         },
     }
 }
@@ -141,8 +151,16 @@ USE_TZ = True
 # Static files
 # ---------------------------------------------------------------------------
 
-STATIC_URL = 'static/'
-STATIC_ROOT = BASE_DIR / 'staticfiles'
+STATIC_URL = '/static/'
+STATIC_ROOT = BUNDLE_DIR / 'staticfiles' if IS_FROZEN else BASE_DIR / 'staticfiles'
+STATICFILES_DIRS = [FRONTEND_DIST] if FRONTEND_DIST.exists() else []
+STORAGES = {
+    'default': {'BACKEND': 'django.core.files.storage.FileSystemStorage'},
+    'staticfiles': {
+        'BACKEND': 'whitenoise.storage.CompressedManifestStaticFilesStorage',
+    },
+}
+WHITENOISE_ROOT = FRONTEND_DIST
 
 MEDIA_URL  = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
@@ -205,6 +223,10 @@ SIMPLE_JWT = {
 
 # ---------------------------------------------------------------------------
 # CORS — only allow the Vite dev server origin (Requirement 22.3)
+# Note: once the frontend is served BY Django on the same origin (packaged
+# build), these settings become inert for that build since requests are
+# same-origin. Left in unconditionally on purpose -- still required for the
+# `npm run dev` workflow on port 5173/5174, and harmless otherwise.
 # ---------------------------------------------------------------------------
 
 CORS_ALLOWED_ORIGINS = [
@@ -234,3 +256,22 @@ CORS_ALLOW_HEADERS = [
     'x-csrftoken',
     'x-requested-with',
 ]
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {
+        'file': {
+            'level': 'ERROR',
+            'class': 'logging.FileHandler',
+            'filename': BASE_DIR / 'django_errors.log',
+        },
+    },
+    'loggers': {
+        'django.request': {
+            'handlers': ['file'],
+            'level': 'ERROR',
+            'propagate': False,
+        },
+    },
+}
