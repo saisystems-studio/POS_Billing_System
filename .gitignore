@@ -15,5 +15,5 @@ venv/
 node_modules/
 dist/
 
-# VS Code optional
+# VS Code
 .vscode/
