@@ -62,7 +62,7 @@ const Dashboard = () => {
   return (
     <Layout>
       {/* Header */}
-      <div className="page-header animate-in">
+      <div className="page-header dashboard-heading animate-in">
         <div>
           <h2>Dashboard</h2>
           <p className="page-header-sub">

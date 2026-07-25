@@ -9,14 +9,14 @@ import productService from '../../services/productService';
 import productGroupService from '../../services/productGroupService';
 import billingService from '../../services/billingService';
 import { formatBackendImportError, getImportToast, isCanceledImport, isTimeoutImport } from '../../utils/excelImportFeedback';
+import useResponsivePageSize from '../../hooks/useResponsivePageSize';
 
 const BRAND = '#8A5125';
-const PAGE_SIZE = 10;
 const PRICE_CODE_ORDERING = 'id';
 const PRICE_CODE_PAGE_CACHE_LIMIT = 20;
 const PRICE_CODE_PAGE_STORAGE_KEY = 'price-code-list-page';
 const PRICE_CODE_CACHE_STORAGE_KEY = 'price-code-list-cache-v1';
-const SearchIcon = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{width:14,height:14}}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>;
+import SharedSearchField from '../../components/SharedSearchField';
 const UploadIcon = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round" style={{width:14,height:14}}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>;
 
 const Spin = () => (
@@ -63,6 +63,11 @@ const ProductPriceList = () => {
   const navigationLockRef = useRef(false);
   const pageCacheRef = useRef(new Map());
   const pageRequestsRef = useRef(new Map());
+  const { pageSize, containerRef, rowRef, bottomRef } = useResponsivePageSize({
+    defaultRowHeight: 36,
+    mobileRowHeight: 36,
+    reservedBottomSpace: 52,
+  });
 
   const persistPageCache = useCallback(() => {
     try {
@@ -92,6 +97,11 @@ const ProductPriceList = () => {
   }, [search]);
 
   useEffect(() => { setPage(1); }, [groupFilter]);
+  useEffect(() => {
+    setPage(1);
+    setProducts([]);
+    setActiveRowId(null);
+  }, [pageSize]);
 
   useEffect(() => {
     productGroupService.getGroupsDropdown()
@@ -130,7 +140,7 @@ const ProductPriceList = () => {
     setError(''); setLastLoadFailed(false);
     const searchTerm = debSearch;
     const authScope = user?.id || user?.username || username || 'anonymous';
-    const cacheKey = `${authScope}|price-code-list|page=${page}|page_size=${PAGE_SIZE}|search=${searchTerm}|group=${groupFilter}|status=active|ordering=${PRICE_CODE_ORDERING}`;
+    const cacheKey = `${authScope}|price-code-list|page=${page}|page_size=${pageSize}|search=${searchTerm}|group=${groupFilter}|status=active|ordering=${PRICE_CODE_ORDERING}`;
     const cached = !options.force ? pageCacheRef.current.get(cacheKey) : null;
     if (cached) {
       applyPageData(cached.products, cached.priceCodes, cached.total);
@@ -142,7 +152,7 @@ const ProductPriceList = () => {
     try {
       const params = {
         page,
-        page_size: PAGE_SIZE,
+        page_size: pageSize,
         ordering: PRICE_CODE_ORDERING,
         ...(searchTerm ? { search: searchTerm } : {}),
         ...(groupFilter ? { group: groupFilter } : {}),
@@ -171,10 +181,10 @@ const ProductPriceList = () => {
       persistPageCache();
       applyPageData(prods, pcs, totalCount);
       setLoadedPage(page);
-      const maxPage = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+      const maxPage = Math.max(1, Math.ceil(totalCount / pageSize));
       [page - 1, page + 1].filter(n => n >= 1 && n <= maxPage).forEach(n => {
         const nextParams = { ...params, page: n };
-        const nextKey = `${authScope}|price-code-list|page=${n}|page_size=${PAGE_SIZE}|search=${searchTerm}|group=${groupFilter}|status=active|ordering=${PRICE_CODE_ORDERING}`;
+        const nextKey = `${authScope}|price-code-list|page=${n}|page_size=${pageSize}|search=${searchTerm}|group=${groupFilter}|status=active|ordering=${PRICE_CODE_ORDERING}`;
         if (pageCacheRef.current.has(nextKey) || pageRequestsRef.current.has(nextKey)) return;
         const prefetch = Promise.all([
           api.get('/products/for-price-page/', { params: nextParams, dedupe: false, timeout: 30000 }),
@@ -208,7 +218,7 @@ const ProductPriceList = () => {
     } finally {
       if (seq === fetchSeqRef.current) setLoading(false);
     }
-  }, [applyPageData, debSearch, groupFilter, page, persistPageCache, products.length, user, username]);
+  }, [applyPageData, debSearch, groupFilter, page, pageSize, persistPageCache, products.length, user, username]);
 
   useEffect(() => {
     const clearPriceCodeCache = () => {
@@ -412,10 +422,10 @@ const ProductPriceList = () => {
     }
   };
 
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const pageRows = products;
-  const showingStart = pageRows.length ? ((loadedPage - 1) * PAGE_SIZE) + 1 : 0;
-  const showingEnd = pageRows.length ? Math.min(((loadedPage - 1) * PAGE_SIZE) + pageRows.length, total) : 0;
+  const showingStart = pageRows.length ? ((loadedPage - 1) * pageSize) + 1 : 0;
+  const showingEnd = pageRows.length ? Math.min(((loadedPage - 1) * pageSize) + pageRows.length, total) : 0;
   useEffect(() => {
     if (total > 0 && page > totalPages) setPage(totalPages);
   }, [page, total, totalPages]);
@@ -479,18 +489,18 @@ const ProductPriceList = () => {
   return (
     <Layout>
       <div className="price-code-list-page">
-      <div className="page-header animate-in" style={{marginBottom:'1rem'}}>
+      <div className="page-header price-code-list-header animate-in" style={{marginBottom:'1rem'}}>
         <div>
-          <h2 style={{fontFamily:'var(--font-heading)',fontWeight:800}}>Price Code List</h2>
+          <h2 className="price-code-list-title" style={{fontFamily:'var(--font-heading)',fontWeight:800}}>Price Code List</h2>
           <p className="page-header-sub">Admin · Set five rates per product</p>
         </div>
-        <div className="d-flex gap-2 align-center list-header-actions">
-          <div className="input-group list-header-search">
-            <span className="input-group-text"><SearchIcon/></span>
-            <input type="text" className="form-control"
-              placeholder="Search prices..."
-              value={search} onChange={e => setSearch(e.target.value)}/>
-          </div>
+        <div className="d-flex gap-2 align-center list-header-actions price-code-toolbar price-code-list-toolbar">
+          <SharedSearchField
+            className="list-header-search price-code-search"
+            placeholder="Search product name or code..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+          />
           <select className="form-select form-select-sm price-code-group-filter"
             value={groupFilter} onChange={e => setGroupFilter(e.target.value)}>
             <option value="">All Groups</option>
@@ -514,22 +524,15 @@ const ProductPriceList = () => {
 
       <div className="card animate-in animate-in-1 price-code-list-card">
         <div className="card-body">
-          {/* Search */}
-          <div className="list-toolbar" style={{display:'none'}}>
-            <div className="input-group">
-              <span className="input-group-text"><SearchIcon/></span>
-              <input type="text" className="form-control"
-                placeholder="Search product name or code…"
-                value={search} onChange={e => setSearch(e.target.value)}/>
-            </div>
-          </div>
-
-          <div className="price-code-table-area list-keyboard-zone" tabIndex={0} onKeyDown={handleListKeyDown}>
+          <div ref={containerRef} className="price-code-table-section price-code-table-area list-keyboard-zone" tabIndex={0} onKeyDown={handleListKeyDown}>
+          <p className="price-scroll-hint">Swipe left or right to view Price A, B, C, D and Retail.</p>
+          <div className="price-code-table-scroll">
           <SplitTable
             className="table table-compact price-code-table"
             tableProps={{ style: { borderCollapse: 'collapse', tableLayout: 'fixed', width: '100%' } }}
             empty={products.length===0}
             disableSplit
+            bare
             head={(
                 <tr style={{borderBottom:`2px solid ${BRAND}`}}>
                   <th className="pc-col-sno" style={{...thS,textAlign:'center'}}>S.No</th>
@@ -560,7 +563,7 @@ const ProductPriceList = () => {
                       ? '#ffffff'           /* pure white */
                       : '#faf4ee';          /* warm mocha tint */
                   return (
-                    <tr key={p.id}
+                    <tr key={p.id} ref={idx === 0 ? rowRef : undefined}
                       className={activeRowId === p.id ? 'row-keyboard-selected' : ''}
                       style={{
                         background: rowBg,
@@ -576,7 +579,7 @@ const ProductPriceList = () => {
                         if (!isDirtyRow && activeRowId !== p.id) e.currentTarget.style.background = '#f5ece0';
                       }}
                       onMouseLeave={e => { if (!isDirtyRow && activeRowId !== p.id) e.currentTarget.style.background = rowBg; }}>
-                      <td className="pc-cell-sno" style={{fontVariantNumeric:'tabular-nums'}}>{(loadedPage - 1) * PAGE_SIZE + idx + 1}</td>
+                      <td className="pc-cell-sno" style={{fontVariantNumeric:'tabular-nums'}}>{(loadedPage - 1) * pageSize + idx + 1}</td>
                       <td className="pc-cell-product">
                         <div className="pc-product-name">{p.ProductName}</div>
                       </td>
@@ -609,7 +612,8 @@ const ProductPriceList = () => {
                 })}
           </SplitTable>
           </div>
-          <div className="table-pagination-footer">
+          </div>
+          <div ref={bottomRef} className="table-pagination-footer">
             <div className="product-record-info">
               {pageRows.length
                 ? `Showing ${showingStart}-${showingEnd} of ${total} records`

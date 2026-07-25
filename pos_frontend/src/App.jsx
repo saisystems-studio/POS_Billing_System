@@ -4,6 +4,7 @@ import { ToastProvider } from './context/ToastContext';
 import { CompanyProvider } from './context/CompanyContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import GlobalTextFieldShortcuts from './components/GlobalTextFieldShortcuts';
+import AppRouteHistory from './components/AppRouteHistory';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
@@ -29,6 +30,7 @@ function App() {
         <CompanyProvider>
         <GlobalTextFieldShortcuts />
         <Router>
+          <AppRouteHistory />
           <Routes>
             {/* Public routes */}
             <Route path="/login"    element={<Login />} />

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
+import { Plus } from 'lucide-react';
 // createPortal is still used for CustomerSearchDropdown portal dropdown
 import Layout from '../../components/Layout';
 import ConfirmModal from '../../components/ConfirmModal';
@@ -9,6 +10,8 @@ import { clearPageCache } from '../../services/pageCache';
 import { useCompany } from '../../context/CompanyContext';
 import { useToast } from '../../context/ToastContext';
 import { useAuth } from '../../context/AuthContext';
+import useResponsivePageSize from '../../hooks/useResponsivePageSize';
+import useMobileDropdownPlacement from '../../hooks/useMobileDropdownPlacement';
 
 const BRAND   = '#8A5125';
 const BRAND_LIGHT = '#fdf3eb';
@@ -50,19 +53,35 @@ const XIcon = () => (
 
 /* ── useDropdownPos: only used by CustomerSearchDropdown (portal) ── */
 const useDropdownPos = (inputRef, open) => {
-  const [pos, setPos] = useState({ top:0, left:0, width:0 });
+  const [pos, setPos] = useState({ top:0, bottom:'auto', left:0, width:0, maxHeight:240 });
   useEffect(() => {
     if (!open || !inputRef.current) return;
     const measure = () => {
       const r = inputRef.current.getBoundingClientRect();
-      setPos({ top: r.bottom, left: r.left, width: r.width });
+      const mobile = window.matchMedia('(max-width: 768px)').matches;
+      const below = Math.max(0, window.innerHeight - r.bottom - (mobile ? 110 : 0));
+      const above = Math.max(0, r.top - 12);
+      const openUp = mobile && below < 180 && above > below;
+      setPos({
+        top: openUp ? 'auto' : r.bottom + 3,
+        bottom: openUp ? window.innerHeight - r.top + 3 : 'auto',
+        left: r.left,
+        width: r.width,
+        maxHeight: mobile ? Math.max(120, Math.min(240, openUp ? above : below)) : 280,
+      });
     };
     measure();
     window.addEventListener('scroll', measure, true);
     window.addEventListener('resize', measure);
+    window.addEventListener('orientationchange', measure);
+    window.visualViewport?.addEventListener('resize', measure);
+    window.visualViewport?.addEventListener('scroll', measure);
     return () => {
       window.removeEventListener('scroll', measure, true);
       window.removeEventListener('resize', measure);
+      window.removeEventListener('orientationchange', measure);
+      window.visualViewport?.removeEventListener('resize', measure);
+      window.visualViewport?.removeEventListener('scroll', measure);
     };
   }, [open, inputRef]);
   return pos;
@@ -167,10 +186,10 @@ const CustomerSearchDropdown = ({ customers, value, onChange, disabled, onNaviga
   }, [hi]);
 
   const dropList = open ? createPortal(
-    <ul ref={listRef} data-sales-dropdown-open="true" style={{position:'fixed',top:pos.top,left:pos.left,width:pos.width,
+    <ul ref={listRef} className="shared-dropdown-menu shared-dropdown-menu-portal" data-sales-dropdown-open="true" style={{position:'fixed',top:pos.top,bottom:pos.bottom,left:pos.left,width:pos.width,maxWidth:pos.width,
       zIndex:99999,background:'#fff',border:`1.5px solid ${BRAND}`,borderTop:'none',
       borderRadius:'0 0 7px 7px',boxShadow:'0 8px 24px rgba(0,0,0,.18)',
-      maxHeight:280,overflowY:'auto',margin:0,padding:0,listStyle:'none'}}>
+      maxHeight:pos.maxHeight,overflowY:'auto',margin:0,padding:0,listStyle:'none','--mobile-dropdown-max-height':`${pos.maxHeight}px`}}>
       {error && filtered.length === 0
           ? <li style={{padding:'.5rem .75rem',color:'var(--danger)',fontSize:'.8rem',fontWeight:600}}>{error}</li>
           : filtered.length === 0
@@ -199,6 +218,7 @@ const CustomerSearchDropdown = ({ customers, value, onChange, disabled, onNaviga
       <div style={{position:'relative',flex:'0 1 260px',minWidth:170,maxWidth:280}}>
         <input ref={inputRef} type="text" value={q} disabled={disabled} autoComplete="off"
           data-sales-dropdown="true"
+          data-billing-field="true"
           placeholder="Search customer…"
           style={{width:'100%',height:32,padding:'.25rem .6rem',fontSize:'.82rem',
             border:`1.5px solid ${open ? BRAND : 'var(--border-input)'}`,borderRadius:6,
@@ -233,6 +253,7 @@ const PriceCodeDropdown = ({ priceCodes, value, onChange, disabled, productData,
   const [search, setSearch] = useState('');
   const [hi, setHi] = useState(0);
   const wrapRef  = useRef(null);
+  const { menuClassName, mobileMenuStyle } = useMobileDropdownPlacement(wrapRef, open);
   const searchRef = useRef(null);
   const listRef  = useRef(null);
   const inputRef = extRef || useRef(null); // eslint-disable-line
@@ -276,7 +297,7 @@ const PriceCodeDropdown = ({ priceCodes, value, onChange, disabled, productData,
     setOpen(false);
     setSearch('');
     setHi(0);
-    setTimeout(() => onNext?.(), 60);
+    setTimeout(() => onNext?.(pc.id), 60);
   };
 
   const openDrop = () => {
@@ -360,6 +381,7 @@ const PriceCodeDropdown = ({ priceCodes, value, onChange, disabled, productData,
         type="button"
         data-sales-dropdown="true"
         data-escape-clear="true"
+        data-billing-field="true"
         disabled={disabled}
         onClick={openDrop}
         onFocus={openDrop}
@@ -377,7 +399,7 @@ const PriceCodeDropdown = ({ priceCodes, value, onChange, disabled, productData,
         title={displayLabel || 'Select price code…'}
       >
         <span style={{overflow:'hidden', whiteSpace:'nowrap', textOverflow:'ellipsis', flex:1}}>
-          {displayLabel || <span style={{color:'var(--text-muted)'}}>Price code…</span>}
+          {displayLabel || <span style={{color:'var(--text-muted)'}}>Select price code</span>}
         </span>
         <span style={{position:'absolute', right:'.35rem', top:'50%', transform:'translateY(-50%)',
           color:'var(--text-muted)', fontSize:'.6rem', userSelect:'none', lineHeight:1,
@@ -386,7 +408,7 @@ const PriceCodeDropdown = ({ priceCodes, value, onChange, disabled, productData,
 
       {/* Absolute dropdown — stays inside the cell */}
       {open && (
-        <div data-sales-dropdown-open="true" style={{
+        <div className={menuClassName} data-sales-dropdown-open="true" style={{...mobileMenuStyle,
           position:'absolute', top:'calc(100% + 3px)', left:0, minWidth:'100%', width:'max-content', maxWidth:260,
           zIndex:99999, background:'#fff', border:`1.5px solid ${BRAND}`,
           borderRadius:'0 0 7px 7px', boxShadow:'0 8px 24px rgba(0,0,0,.18)',
@@ -412,6 +434,17 @@ const PriceCodeDropdown = ({ priceCodes, value, onChange, disabled, productData,
           </div>
           {/* Options list — scrollable */}
           <ul ref={listRef} style={{margin:0, padding:0, listStyle:'none', maxHeight:190, overflowY:'auto', flex:1}}>
+            <li onMouseDown={e => {
+              e.preventDefault();
+              onChange(null);
+              setOpen(false);
+              setSearch('');
+              setHi(0);
+              setTimeout(() => onNext?.(null), 60);
+            }} style={{padding:'.38rem .65rem',color:'var(--text-muted)',fontSize:'.82rem',
+              cursor:'pointer',borderBottom:'1px solid var(--divider)'}}>
+              Select price code
+            </li>
             {filtered.length === 0 ? (
               <li style={{padding:'.45rem .65rem', color:'var(--text-muted)', fontSize:'.78rem', fontStyle:'italic'}}>
                 No price codes available for this product
@@ -455,6 +488,7 @@ const ProductSearchDropdown = ({
   const [hi, setHi] = useState(0);
   const [scrollTop, setScrollTop] = useState(0);
   const wrapRef   = useRef(null);
+  const { menuClassName, mobileMenuStyle } = useMobileDropdownPlacement(wrapRef, open);
   const searchRef = useRef(null);
   const listRef   = useRef(null);
   const inputRef  = extRef || useRef(null); // eslint-disable-line
@@ -511,7 +545,7 @@ const ProductSearchDropdown = ({
     setSearch('');
     setHi(0);
     setScrollTop(0);
-    setTimeout(() => onNext?.(), 60);
+    setTimeout(() => onNext?.(p.id), 60);
   };
 
   const openDrop = () => {
@@ -616,6 +650,7 @@ const ProductSearchDropdown = ({
         type="button"
         data-sales-dropdown="true"
         data-escape-clear="true"
+        data-billing-field="true"
         disabled={disabled}
         onClick={openDrop}
         onFocus={openDrop}
@@ -639,7 +674,7 @@ const ProductSearchDropdown = ({
           </span>
         ) : (
           <span style={{color:'var(--text-muted)', overflow:'hidden', textOverflow:'ellipsis', flex:1}}>
-            Search product…
+            Select particulars
           </span>
         )}
         <span style={{
@@ -651,7 +686,7 @@ const ProductSearchDropdown = ({
 
       {/* Absolute dropdown — anchored to this cell */}
       {open && (
-        <div data-sales-dropdown-open="true" style={{
+        <div className={menuClassName} data-sales-dropdown-open="true" style={{...mobileMenuStyle,
           position:'absolute', top:'calc(100% + 3px)', left:0,
           width:'max-content', minWidth:'100%', maxWidth:380,
           zIndex:99999, background:'#fff', border:`1.5px solid ${BRAND}`,
@@ -678,6 +713,19 @@ const ProductSearchDropdown = ({
           </div>
           {/* Options list — scrollable */}
           <ul ref={listRef} onScroll={handleListScroll} style={{margin:0, padding:0, listStyle:'none', height:listHeight, maxHeight:PRODUCT_DROPDOWN_HEIGHT, overflowY:filtered.length > 0 ? 'auto' : 'hidden', flex:'0 0 auto'}}>
+            <li onMouseDown={e => {
+              e.preventDefault();
+              onChange(null);
+              setOpen(false);
+              setSearch('');
+              setHi(0);
+              setScrollTop(0);
+              setTimeout(() => inputRef.current?.focus(), 0);
+            }} style={{height:PRODUCT_OPTION_HEIGHT,boxSizing:'border-box',padding:'.38rem .65rem',
+              display:'flex',alignItems:'center',color:'var(--text-muted)',fontSize:'.82rem',
+              cursor:'pointer',borderBottom:'1px solid var(--divider)'}}>
+              Select particulars
+            </li>
             {error && filtered.length === 0 ? (
               <li style={{padding:'.45rem .65rem', color:'var(--danger)', fontSize:'.78rem', fontWeight:600}}>
                 <span>{error}</span>
@@ -810,8 +858,16 @@ const getEffectiveRate = row => {
 };
 
 /* Is a row "completed" — has product, qty > 0, effective rate > 0 */
-const isRowComplete = row =>
-  row.ProductID && row.PriceCodeID && parseFloat(row.Qty) > 0 && getEffectiveRate(row) > 0;
+const isRowComplete = row => {
+  const hasManualRate = row.changeableRate !== '' &&
+    row.changeableRate != null &&
+    Number.isFinite(Number(row.changeableRate)) &&
+    Number(row.changeableRate) > 0;
+  return row.ProductID &&
+    (row.PriceCodeID || hasManualRate) &&
+    parseFloat(row.Qty) > 0 &&
+    getEffectiveRate(row) > 0;
+};
 
 const isBlankRow = row =>
   !row?.ProductID && !row?.Qty && !row?.changeableRate && !row?.rate;
@@ -862,9 +918,12 @@ const BillingForm = () => {
   const [rowErrors,  setRowErrors]  = useState({}); // { rowIdx: 'message' }
   const [showDel,    setShowDel]    = useState(false);
   const [deleting,   setDeleting]   = useState(false);
+  const [billingPage, setBillingPage] = useState(1);
 
   /* cell refs: cellRefs.current[rowIdx][colKey] = HTMLElement */
-  const cellRefs   = useRef([]);
+  const cellRefs   = useRef({});
+  const rowsRef = useRef(rows);
+  rowsRef.current = rows;
   const rowCloseRefs = useRef([]);
   const pageRef = useRef(null);
   const cancelBtnRef = useRef(null);
@@ -882,6 +941,14 @@ const BillingForm = () => {
   const lastProductSearchRef = useRef(null);
   const loadingMoreProductsRef = useRef(false);
   const failedProductPageRef = useRef(null);
+  const { pageSize: billingRowsPerPage, containerRef: billingGridRef, rowRef: billingRowRef, bottomRef: billingActionsRef } = useResponsivePageSize({
+    minRows: 3,
+    maxRows: 20,
+    defaultRowHeight: 36,
+    mobileRowHeight: 238,
+    reservedBottomSpace: 54,
+    safeSpacing: 12,
+  });
 
   /* ── derived ── */
   const isFixed   = priceConfig?.PriceCodeType === 'Fixed';
@@ -895,17 +962,19 @@ const BillingForm = () => {
   const activeCols = useCallback(() => {
     const cols = [COL_PRODUCT, COL_QTY];
     if (!isFixed) cols.push(COL_PRICE_CODE);
-    cols.push(COL_RATE, COL_AMOUNT);
+    cols.push(COL_RATE);
     return cols;
   }, [isFixed]);
 
   /* ── focus a cell ── */
   const focusCell = useCallback((rowIdx, col) => {
+    setBillingPage(Math.floor(rowIdx / billingRowsPerPage) + 1);
     setTimeout(() => {
-      const el = cellRefs.current[rowIdx]?.[col];
+      const rowKey = rowsRef.current[rowIdx]?._key;
+      const el = rowKey ? cellRefs.current[rowKey]?.[col] : null;
       if (el) { el.focus(); if (el.select) el.select(); }
-    }, 30);
-  }, []);
+    }, 60);
+  }, [billingRowsPerPage]);
 
   const focusEl = useCallback((el) => {
     setTimeout(() => {
@@ -928,7 +997,7 @@ const BillingForm = () => {
       for (let rowIdx = rows.length - 1; rowIdx >= 0; rowIdx -= 1) {
         const cols = activeCols();
         for (let colIdx = cols.length - 1; colIdx >= 0; colIdx -= 1) {
-          const el = cellRefs.current[rowIdx]?.[cols[colIdx]];
+          const el = cellRefs.current[rows[rowIdx]?._key]?.[cols[colIdx]];
           if (el && !el.disabled && el.tabIndex !== -1) {
             el.focus();
             if (el.select) el.select();
@@ -985,25 +1054,11 @@ const BillingForm = () => {
     return isRowComplete(last) ? [...activeRows, makeReadyBlankRow()] : activeRows;
   }, [makeReadyBlankRow]);
 
-  const focusCancel = useCallback(() => {
-    setTimeout(() => {
-      const el = cancelBtnRef.current;
-      if (el && !el.disabled) el.focus();
-    }, 30);
-  }, []);
-
-  const focusSave = useCallback(() => {
-    setTimeout(() => {
-      const el = saveBtnRef.current;
-      if (el && !el.disabled) el.focus();
-    }, 30);
-  }, []);
-
   const focusLastCompletedAmount = useCallback(() => {
     setTimeout(() => {
       for (let rowIdx = rows.length - 1; rowIdx >= 0; rowIdx -= 1) {
         if (!isRowComplete(rows[rowIdx])) continue;
-        const el = cellRefs.current[rowIdx]?.[COL_AMOUNT];
+        const el = cellRefs.current[rows[rowIdx]?._key]?.[COL_AMOUNT];
         if (el && !el.disabled) {
           el.focus();
           return;
@@ -1051,18 +1106,6 @@ const BillingForm = () => {
     setTimeout(() => focusFirstBlankProduct(), 60);
   }, [focusCell, focusFirstBlankProduct, keepSingleReadyBlankRow, rows]);
 
-  const completeRowAndFocusCancel = useCallback((rowIdx, currentPatch = null) => {
-    const sourceRows = currentPatch
-      ? rows.map((r, i) => (i === rowIdx ? { ...r, ...currentPatch } : r))
-      : rows;
-    const current = sourceRows[rowIdx];
-    if (!isRowComplete(current)) {
-      focusCell(rowIdx, COL_RATE);
-      return;
-    }
-    focusCancel();
-  }, [focusCancel, focusCell, rows]);
-
   /* ── navigate to next/prev cell ── */
   const navigateCell = useCallback((rowIdx, col, dir, currentPatch = null) => {
     const sourceRows = currentPatch
@@ -1072,26 +1115,40 @@ const BillingForm = () => {
     const colIdx = cols.indexOf(col);
     if (colIdx === -1) return;
 
-    if (dir > 0 && col === COL_RATE) {
-      const current = sourceRows[rowIdx];
-      if (!isRowComplete(current)) {
-        focusCell(rowIdx, col);
-        return;
-      }
-      focusCell(rowIdx, COL_AMOUNT);
+    if (dir > 0 && col === COL_PRODUCT && !sourceRows[rowIdx]?.ProductID) {
+      setRowErrors(prev => ({ ...prev, [rowIdx]: 'Select particulars.' }));
+      focusCell(rowIdx, COL_PRODUCT);
       return;
     }
 
-    if (dir > 0 && col === COL_AMOUNT) {
+    if (dir > 0 && col === COL_QTY) {
       const current = sourceRows[rowIdx];
-      if (!isRowComplete(current)) {
-        focusCell(rowIdx, COL_RATE);
+      const qty = Number.parseFloat(current?.Qty);
+      if (!Number.isFinite(qty) || qty <= 0) {
+        setRowErrors(prev => ({ ...prev, [rowIdx]: 'Enter a valid quantity greater than zero.' }));
+        focusCell(rowIdx, COL_QTY);
         return;
       }
-      setRows(prev => keepSingleReadyBlankRow(
-        currentPatch ? prev.map((r, i) => (i === rowIdx ? { ...r, ...currentPatch } : r)) : prev
-      ));
-      setTimeout(() => focusFirstBlankProduct(), 60);
+      if (isFixed) {
+        if (!isRowComplete(current)) {
+          setRowErrors(prev => ({ ...prev, [rowIdx]: 'A valid fixed price is required.' }));
+          focusCell(rowIdx, COL_QTY);
+          return;
+        }
+      }
+    }
+
+    if (dir > 0 && col === COL_PRICE_CODE) {
+      const current = sourceRows[rowIdx];
+      if (current?.PriceCodeID && getEffectiveRate(current) <= 0) {
+        setRowErrors(prev => ({ ...prev, [rowIdx]: 'Select a valid price code.' }));
+        focusCell(rowIdx, COL_PRICE_CODE);
+        return;
+      }
+    }
+
+    if (dir > 0 && col === COL_RATE) {
+      completeRowCreateNextAndFocusProduct(rowIdx, currentPatch);
       return;
     }
 
@@ -1102,7 +1159,7 @@ const BillingForm = () => {
     if (nextRow >= sourceRows.length) {
       const current = sourceRows[rowIdx];
       if (isBlankRow(current)) {
-        focusCancel();
+        focusCell(rowIdx, COL_PRODUCT);
         return;
       }
       if (!isRowComplete(current)) {
@@ -1117,12 +1174,13 @@ const BillingForm = () => {
     }
     if (nextRow < 0) { custRef.current?.focus(); return; }
     focusCell(nextRow, cols[nextCol]);
-  }, [activeCols, rows, focusCell, focusFirstBlankProduct, keepSingleReadyBlankRow, focusCancel]);
+  }, [activeCols, rows, focusCell, focusFirstBlankProduct, keepSingleReadyBlankRow, isFixed, completeRowCreateNextAndFocusProduct]);
 
   /* ── register cell ref ── */
-  const setCellRef = useCallback((rowIdx, col, el) => {
-    if (!cellRefs.current[rowIdx]) cellRefs.current[rowIdx] = {};
-    cellRefs.current[rowIdx][col] = el;
+  const setCellRef = useCallback((rowKey, col, el) => {
+    if (!cellRefs.current[rowKey]) cellRefs.current[rowKey] = {};
+    if (el) cellRefs.current[rowKey][col] = el;
+    else delete cellRefs.current[rowKey][col];
   }, []);
 
   /* ── Load master data ── */
@@ -1262,8 +1320,11 @@ const BillingForm = () => {
       setCustomerID(draft.customerID);
     }
 
+    if (location.state?.productCreated) {
+      loadProducts('', { force: true });
+    }
     navigate(location.pathname, { replace: true });
-  }, [location.pathname, location.state, navigate]);
+  }, [loadProducts, location.pathname, location.state, navigate]);
 
   /* ── Load existing bill for edit mode ── */
   useEffect(() => {
@@ -1362,9 +1423,12 @@ const BillingForm = () => {
 
   /* ── Keep cellRefs array sized ── */
   useEffect(() => {
-    cellRefs.current = cellRefs.current.slice(0, rows.length);
+    const activeRowKeys = new Set(rows.map(row => row._key));
+    Object.keys(cellRefs.current).forEach(rowKey => {
+      if (!activeRowKeys.has(rowKey)) delete cellRefs.current[rowKey];
+    });
     rowCloseRefs.current = rowCloseRefs.current.slice(0, rows.length);
-  }, [rows.length]);
+  }, [rows]);
 
   useEffect(() => {
     if (isReadOnly) return;
@@ -1397,7 +1461,8 @@ const BillingForm = () => {
     } else {
       setRows(prev => prev.map(r => ({ ...r, PriceCodeID: null, rate: '', changeableRate: '', isRateEditable: false })));
     }
-  }, [customers]);
+    requestAnimationFrame(() => focusCell(0, COL_PRODUCT));
+  }, [customers, focusCell]);
 
   const buildSalesDraft = useCallback(() => ({
     customerID,
@@ -1415,7 +1480,9 @@ const BillingForm = () => {
     });
   }, [buildSalesDraft, navigate]);
 
-  const goToAddProduct = useCallback(() => {
+  const goToAddProduct = useCallback((event) => {
+    event?.preventDefault();
+    event?.stopPropagation();
     navigate('/products/new', {
       state: {
         returnToSales: true,
@@ -1431,6 +1498,25 @@ const BillingForm = () => {
     // Clear row-level error when user makes changes
     setRowErrors(prev => { const n = { ...prev }; delete n[idx]; return n; });
   }, []);
+
+  useEffect(() => {
+    const form = pageRef.current;
+    if (!form) return undefined;
+    const unlockRate = event => {
+      const target = event.target;
+      if (target?.dataset?.salesRate !== 'true') return;
+      const rowIdx = Number.parseInt(target.dataset.rowIndex, 10);
+      if (!Number.isInteger(rowIdx)) return;
+      updateRow(rowIdx, {
+        rate: '',
+        changeableRate: '',
+        isRateEditable: true,
+      });
+      setTimeout(() => target.focus(), 0);
+    };
+    form.addEventListener('pos-escape-clear-field', unlockRate);
+    return () => form.removeEventListener('pos-escape-clear-field', unlockRate);
+  }, [updateRow, loading]);
 
   const focusNextEmptyProduct = useCallback(() => {
     setTimeout(() => {
@@ -1479,16 +1565,24 @@ const BillingForm = () => {
   const handleProductChange = useCallback((idx, pid) => {
     const prod = products.find(p => p.id === pid) || null;
     const fixedPcID = (isFixed && priceConfig?.FixedPriceCodeID) ? priceConfig.FixedPriceCodeID : null;
-    const pcID = fixedPcID || rows[idx].PriceCodeID || null;
+    const pcID = prod ? (fixedPcID || rows[idx].PriceCodeID || null) : null;
     const rate = prod && pcID ? getRateForCode(prod, pcID) : '';
     const gstPct = prod?.GSTPercent > 0 ? String(prod.GSTPercent) : '';
-    updateRow(idx, { ProductID: pid, productData: prod, PriceCodeID: pcID, rate, changeableRate: '', isRateEditable: false, GSTPercent: gstPct });
-    // Focus qty after product select
-    setTimeout(() => focusCell(idx, COL_QTY), 60);
+    updateRow(idx, { ProductID: prod?.id || null, productData: prod, PriceCodeID: pcID, rate, changeableRate: '', isRateEditable: false, GSTPercent: gstPct });
+    setTimeout(() => focusCell(idx, prod ? COL_QTY : COL_PRODUCT), 60);
   }, [products, isFixed, priceConfig, rows, updateRow, focusCell]);
 
   const handlePriceCodeChange = useCallback((idx, pcid) => {
     const row = rows[idx];
+    if (!pcid) {
+      updateRow(idx, {
+        PriceCodeID: null,
+        rate: '',
+        changeableRate: '',
+        isRateEditable: true,
+      });
+      return;
+    }
     const rate = getRateForCode(row.productData, pcid);
     updateRow(idx, { PriceCodeID: pcid, rate, changeableRate: '', isRateEditable: false });
   }, [rows, updateRow]);
@@ -1536,6 +1630,19 @@ const BillingForm = () => {
   }, [rows]);
 
   const totals = calcTotals();
+  const billingPageCount = Math.max(1, Math.ceil(rows.length / billingRowsPerPage));
+  const billingPageStart = (billingPage - 1) * billingRowsPerPage;
+  const visibleBillingRows = rows
+    .slice(billingPageStart, billingPageStart + billingRowsPerPage)
+    .map((row, offset) => ({ row, idx: billingPageStart + offset }));
+
+  useEffect(() => {
+    if (billingPage > billingPageCount) setBillingPage(billingPageCount);
+  }, [billingPage, billingPageCount]);
+
+  useEffect(() => {
+    setBillingPage(current => Math.min(current, Math.max(1, Math.ceil(rows.length / billingRowsPerPage))));
+  }, [billingRowsPerPage, rows.length]);
 
   /* ── Stock check helper ── */
   const checkStock = useCallback((row, idx) => {
@@ -1571,8 +1678,10 @@ const BillingForm = () => {
 
     completedRows.forEach((r, i) => {
       const origIdx = rows.indexOf(r);
-      if (!r.PriceCodeID) {
-        errors[origIdx] = 'Price code is required.';
+      const manualRate = parseFloat(r.changeableRate);
+      const hasManualRate = Number.isFinite(manualRate) && manualRate > 0;
+      if (!r.PriceCodeID && !hasManualRate) {
+        errors[origIdx] = 'Select a price code or enter a rate.';
       } else {
         const stockErr = checkStock(r, origIdx);
         if (stockErr) errors[origIdx] = stockErr;
@@ -1593,7 +1702,7 @@ const BillingForm = () => {
         const hasChangeable = !isNaN(cr) && cr > 0;
         return {
           ProductID:         r.ProductID,
-          PriceCodeID:       r.PriceCodeID,
+          PriceCodeID:       r.PriceCodeID || null,
           Qty:               r.Qty,
           IsDiscountApplied: r.IsDiscountApplied,
           DiscountPercent:   r.IsDiscountApplied ? (r.DiscountPercent || '0') : '0',
@@ -1629,13 +1738,13 @@ const BillingForm = () => {
       if (isEdit) {
         savedBill = await billingService.updateBill(id, payload);
         clearPageCache('billings');
-        toast.success('Bill Updated', `${savedBill.BillNo} updated successfully.`);
+        toast.push({ type:'success', title:'Bill Updated', message:'Sales bill saved successfully.', hideProgress:true });
         navigate('/billing');
       } else {
         savedBill = await billingService.createBill(payload);
         clearPageCache('billings');
         setSavedBillNo(savedBill.BillNo || `#${savedBill.id}`);
-        toast.success('Bill Saved', `${savedBill.BillNo} created.`);
+        toast.push({ type:'success', title:'Bill Saved', message:'Sales bill saved successfully.', hideProgress:true });
         navigate('/billing', { state: { newBill: savedBill } });
       }
     } catch (e) {
@@ -1691,6 +1800,7 @@ const BillingForm = () => {
   const handleFormKeyDown = useCallback((e) => {
     if (isReadOnly) return;
     const target = e.target;
+    const isBillingControl = target?.closest?.('[data-billing-field="true"]');
     const isCancel = cancelBtnRef.current && (cancelBtnRef.current === target || cancelBtnRef.current.contains?.(target));
     const isSave = saveBtnRef.current && (saveBtnRef.current === target || saveBtnRef.current.contains?.(target));
     const isDropdownOpen = () => Boolean(document.querySelector('[data-sales-dropdown-open="true"]'));
@@ -1703,33 +1813,50 @@ const BillingForm = () => {
 
     if (isSave || isCancel) {
       e.preventDefault();
-      if (e.key === 'Enter') {
-        if (isCancel) focusSave();
-        else if (isSave) ensureBlankRowAndFocusProduct();
-      }
+      e.stopPropagation();
       return;
     }
 
-    for (let rowIdx = 0; rowIdx < cellRefs.current.length; rowIdx += 1) {
-      const rowRef = cellRefs.current[rowIdx] || {};
+    if (e.key === 'Enter' && isBillingControl && e.repeat) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+
+    for (let rowIdx = 0; rowIdx < rows.length; rowIdx += 1) {
+      const rowRef = cellRefs.current[rows[rowIdx]?._key] || {};
       const col = activeCols().find(colKey => {
         const el = rowRef[colKey];
         return el && (el === target || el.contains?.(target));
       });
       if (col) {
         if (e.key === 'Backspace') {
-          const value = typeof target?.value === 'string' ? target.value : '';
-          if (value.length > 0) return;
+          const row = rows[rowIdx];
+          const isEmpty =
+            (col === COL_PRODUCT && !row?.ProductID) ||
+            (col === COL_QTY && (row?.Qty === '' || row?.Qty == null)) ||
+            (col === COL_PRICE_CODE && !row?.PriceCodeID) ||
+            (col === COL_RATE &&
+              (row?.changeableRate === '' || row?.changeableRate == null) &&
+              (row?.rate === '' || row?.rate == null));
+          if (!isEmpty) return;
           e.preventDefault();
+          e.stopPropagation();
           navigateCell(rowIdx, col, -1);
           return;
         }
         e.preventDefault();
+        e.stopPropagation();
         navigateCell(rowIdx, col, 1);
         return;
       }
     }
-  }, [activeCols, navigateCell, focusSave, ensureBlankRowAndFocusProduct, isReadOnly]);
+
+    if (e.key === 'Enter' && isBillingControl) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  }, [activeCols, navigateCell, isReadOnly, rows]);
 
   /* ── Delete bill (edit mode only) ── */
   const handleDelete = useCallback(async () => {
@@ -1789,7 +1916,10 @@ const BillingForm = () => {
         .remove-btn:disabled { opacity:.35; cursor:not-allowed; pointer-events:none; }
       `}</style>
 
-            <div ref={pageRef} className="billing-form-page" onKeyDown={handleFormKeyDown} style={{padding:'0'}}>
+            <form ref={pageRef} className={`billing-form-page${isFixed ? ' is-fixed-pricing' : ''}`}
+              onKeyDown={handleFormKeyDown}
+              onSubmit={e => e.preventDefault()}
+              style={{padding:'0'}}>
 
         <div className="sales-compact-topbar">
           <h1 className="sales-compact-title">
@@ -1816,7 +1946,7 @@ const BillingForm = () => {
           </div>
 
           <div className="sales-compact-price">
-            <span className="sales-compact-label">Price Code:</span>
+            <span className="sales-compact-label">Price Code Type:</span>
             {priceConfig && !priceConfig.PriceConfigurationMissing ? (
               <span className="sales-compact-price-pill" style={{
                 background: isFixed ? '#dbeafe' : '#ede9fe',
@@ -1860,7 +1990,7 @@ const BillingForm = () => {
         )}
 
         {/* ── Sales table ── */}
-        <div className="sales-entry-grid" style={{border:`1.5px solid var(--border)`,borderRadius:10,overflow:'visible',
+        <div ref={billingGridRef} data-billing-grid="true" className="sales-entry-grid" style={{border:`1.5px solid var(--border)`,borderRadius:10,overflow:'visible',
           boxShadow:'0 1px 6px rgba(0,0,0,.07)'}}>
 
           {/* Table wrapper — overflow must stay visible so absolute dropdowns aren't clipped */}
@@ -1878,7 +2008,21 @@ const BillingForm = () => {
               <thead>
                 <tr style={{background:HEADER_BG}}>
                   <th className="bf-th" style={{textAlign:'center'}}>S.no</th>
-                  <th className="bf-th">PARTICULARS</th>
+                  <th className="bf-th billing-particulars-header">
+                    <div className="billing-particulars-header-content">
+                      <span>PARTICULARS</span>
+                      {!isReadOnly && (
+                        <button type="button"
+                          className="billing-product-add-icon"
+                          onClick={goToAddProduct}
+                          aria-label="Add new product"
+                          title="Add Product"
+                          tabIndex={-1}>
+                          <Plus size={14}/>
+                        </button>
+                      )}
+                    </div>
+                  </th>
                   <th className="bf-th" style={{textAlign:'right'}}>QTY</th>
                   <th className="bf-th">PRICE CODE</th>
                   <th className="bf-th">RATE</th>
@@ -1887,7 +2031,7 @@ const BillingForm = () => {
                 </tr>
               </thead>
               <tbody>
-                {rows.map((row, idx) => {
+                {visibleBillingRows.map(({ row, idx }, visibleIdx) => {
                   const effectiveRate = getEffectiveRate(row);
                   const qty           = parseFloat(row.Qty) || 0;
                   const lineAmt       = qty * effectiveRate;
@@ -1897,7 +2041,7 @@ const BillingForm = () => {
                   const isFinalBlankRow = idx === rows.length - 1 && isBlankRow(row);
 
                   return (
-                    <tr key={row._key} className={`bf-row${rowErr ? ' bf-row-error' : ''}${row._inactive ? ' bf-row-inactive' : ''}`}
+                    <tr key={row._key} ref={visibleIdx === 0 ? billingRowRef : undefined} className={`bf-row${rowErr ? ' bf-row-error' : ''}${row._inactive ? ' bf-row-inactive' : ''}`}
                       tabIndex={row._inactive ? 0 : undefined}
                       aria-label={row._inactive ? 'Empty billing row. Press Enter or click to add an item.' : undefined}
                       onClick={() => { if (row._inactive) activateBlankRow(idx); }}
@@ -1924,9 +2068,9 @@ const BillingForm = () => {
                           value={row.ProductID}
                           onChange={pid => handleProductChange(idx, pid)}
                           disabled={saving || isReadOnly || row._inactive}
-                          inputRef={el => setCellRef(idx, COL_PRODUCT, el)}
-                          onNext={() => {
-                            navigateCell(idx, COL_PRODUCT, 1);
+                          inputRef={el => setCellRef(row._key, COL_PRODUCT, el)}
+                          onNext={(selectedProductId) => {
+                            navigateCell(idx, COL_PRODUCT, 1, selectedProductId ? { ProductID: selectedProductId } : null);
                           }}
                           onPrev={() => {
                             navigateCell(idx, COL_PRODUCT, -1);
@@ -1951,10 +2095,11 @@ const BillingForm = () => {
                         <input
                           className="bf-input"
                           type="number" min="0.01" step="0.01"
+                          data-billing-field="true"
                           value={row.Qty}
                           disabled={saving || isReadOnly || !row.ProductID}
                           placeholder="0"
-                          ref={el => setCellRef(idx, COL_QTY, el)}
+                          ref={el => setCellRef(row._key, COL_QTY, el)}
                           onChange={e => updateRow(idx, { Qty: e.target.value })}
                           onBlur={e => {
                             if (e.currentTarget.dataset.skipDuplicateMerge === 'true') {
@@ -1970,7 +2115,7 @@ const BillingForm = () => {
                               if (mergeDuplicateProductQuantity(idx, e.currentTarget.value)) {
                                 e.currentTarget.dataset.skipDuplicateMerge = 'true';
                               } else {
-                                navigateCell(idx, COL_QTY, 1);
+                                navigateCell(idx, COL_QTY, 1, { Qty: e.currentTarget.value });
                               }
                             } else if (e.key === 'Backspace' && !e.currentTarget.value) {
                               e.preventDefault();
@@ -1999,8 +2144,23 @@ const BillingForm = () => {
                             disabled={saving || isReadOnly || !row.ProductID}
                             productData={row.productData}
                             rowKey={row._key}
-                            inputRef={el => setCellRef(idx, COL_PRICE_CODE, el)}
-                            onNext={() => navigateCell(idx, COL_PRICE_CODE, 1)}
+                            inputRef={el => setCellRef(row._key, COL_PRICE_CODE, el)}
+                            onNext={(selectedPriceCodeId) => {
+                              const pcid = selectedPriceCodeId === undefined
+                                ? row.PriceCodeID
+                                : selectedPriceCodeId;
+                              navigateCell(idx, COL_PRICE_CODE, 1, pcid ? {
+                                PriceCodeID: pcid,
+                                rate: getRateForCode(row.productData, pcid),
+                                changeableRate: '',
+                                isRateEditable: false,
+                              } : {
+                                PriceCodeID: null,
+                                rate: '',
+                                changeableRate: '',
+                                isRateEditable: true,
+                              });
+                            }}
                             onPrev={() => navigateCell(idx, COL_PRICE_CODE, -1)}
                           />
                         )}
@@ -2011,21 +2171,30 @@ const BillingForm = () => {
                         <input
                           className="bf-input"
                           type="number" min="0" step="0.01"
+                          tabIndex={-1}
                           value={row.changeableRate || row.rate}
                           disabled={saving || isReadOnly || !row.ProductID}
+                          readOnly={!row.isRateEditable}
                           placeholder="0.00"
-                          ref={el => setCellRef(idx, COL_RATE, el)}
+                          ref={el => setCellRef(row._key, COL_RATE, el)}
                           data-sales-rate="true"
-                          onChange={e => updateRow(idx, { changeableRate: e.target.value })}
+                          data-billing-field="true"
+                          data-row-index={idx}
+                          onChange={e => updateRow(idx, { changeableRate: e.target.value, isRateEditable: true })}
                           onKeyDown={e => {
                             if (e.key === 'Enter') {
                               e.preventDefault();
-                              updateRow(idx, { changeableRate: e.currentTarget.value });
-                              navigateCell(idx, COL_RATE, 1, { changeableRate: e.currentTarget.value });
+                              e.stopPropagation();
+                              if (e.repeat) return;
+                              const ratePatch = row.isRateEditable
+                                ? { changeableRate: e.currentTarget.value, isRateEditable: true }
+                                : null;
+                              if (ratePatch) updateRow(idx, ratePatch);
+                              completeRowCreateNextAndFocusProduct(idx, ratePatch);
                             } else if (e.key === 'Backspace' && !e.currentTarget.value) {
                               e.preventDefault();
                               updateRow(idx, { changeableRate: e.currentTarget.value });
-                              navigateCell(idx, COL_RATE, -1, { changeableRate: e.currentTarget.value });
+                              focusCell(idx, isFixed ? COL_QTY : COL_PRICE_CODE);
                             }
                           }}
                           style={{
@@ -2040,15 +2209,16 @@ const BillingForm = () => {
                       {/* Amount */}
                       <td
                         className="bf-td"
-                        ref={el => setCellRef(idx, COL_AMOUNT, el)}
+                        ref={el => setCellRef(row._key, COL_AMOUNT, el)}
                         tabIndex={-1}
                         onKeyDown={e => {
                           if (e.key === 'Enter') {
                             e.preventDefault();
-                            completeRowAndFocusCancel(idx);
+                            e.stopPropagation();
+                            completeRowCreateNextAndFocusProduct(idx);
                           } else if (e.key === 'Backspace') {
                             e.preventDefault();
-                            navigateCell(idx, COL_AMOUNT, -1);
+                            focusCell(idx, isFixed ? COL_QTY : COL_PRICE_CODE);
                           }
                         }}
                         style={{textAlign:'right',outline:'none'}}>
@@ -2079,8 +2249,18 @@ const BillingForm = () => {
             </table>
           </div>
 
+          {billingPageCount > 1 && (
+            <nav className="billing-page-navigation" aria-label="Billing row pages">
+              <button type="button" tabIndex={-1} disabled={billingPage === 1}
+                onClick={() => setBillingPage(page => Math.max(1, page - 1))}>Previous</button>
+              <span>Billing Page {billingPage} of {billingPageCount}</span>
+              <button type="button" tabIndex={-1} disabled={billingPage === billingPageCount}
+                onClick={() => setBillingPage(page => Math.min(billingPageCount, page + 1))}>Next</button>
+            </nav>
+          )}
+
           {/* ── Table footer: row count + grand total ── */}
-          <div style={{borderTop:`2px solid ${BRAND}22`,display:'flex',
+          <div className="sales-entry-summary" style={{borderTop:`2px solid ${BRAND}22`,display:'flex',
             justifyContent:'space-between',alignItems:'center',
             padding:'.55rem 1rem',background:'var(--card-bg)'}}>
             <span style={{fontSize:'.84rem',color:'var(--text-muted)',fontWeight:600}}>
@@ -2096,11 +2276,12 @@ const BillingForm = () => {
         </div>
 
         {/* ── Action buttons ── */}
-        <div className="form-actions-bar sales-entry-actions" style={{display:'flex',justifyContent:'center',alignItems:'center',
+        <div ref={billingActionsRef} className="form-actions-bar sales-entry-actions sales-mobile-actions" style={{display:'flex',justifyContent:'center',alignItems:'center',
           gap:'.625rem',marginTop:'1rem',flexWrap:'wrap'}}>
           {/* Delete button — only on edit mode, admin only */}
           {isEdit && isAdmin && !isReadOnly && (
             <button type="button"
+              tabIndex={-1}
               onClick={() => setShowDel(true)}
               disabled={saving || deleting}
               style={{padding:'.5rem 1.125rem',borderRadius:8,marginRight:'auto',
@@ -2114,6 +2295,7 @@ const BillingForm = () => {
             </button>
           )}
           <button type="button"
+            tabIndex={-1}
             ref={cancelBtnRef}
             onClick={() => navigate('/billing')}
             disabled={saving}
@@ -2126,6 +2308,7 @@ const BillingForm = () => {
           {!isReadOnly && <button
             ref={saveBtnRef}
             type="button"
+            tabIndex={-1}
             onClick={handleSave}
             disabled={!canSave}
             style={{padding:'.5rem 1.5rem',borderRadius:8,
@@ -2134,7 +2317,7 @@ const BillingForm = () => {
               fontWeight:700,cursor:canSave?'pointer':'not-allowed',
               fontSize:'.84rem',display:'flex',alignItems:'center',gap:'.4rem',
               transition:'all .15s',boxShadow: canSave ? `0 3px 12px ${BRAND}44` : 'none'}}>
-            {saving ? <><Spin/> Saving…</> : '✓ Save Sales Bill'}
+            {saving ? 'Saving…' : '✓ Save Sales Bill'}
           </button>}
         </div>
 
@@ -2150,10 +2333,9 @@ const BillingForm = () => {
           cancelText="Cancel"
         />
 
-      </div>
+      </form>
     </Layout>
   );
 };
 
 export default BillingForm;
-

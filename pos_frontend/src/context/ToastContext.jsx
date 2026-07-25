@@ -63,7 +63,7 @@ const ProgressBar = ({ type, duration = 2800 }) => {
 };
 
 /* ─── Single Toast ─── */
-const Toast = ({ id, type, title, message, details, detailsLabel = 'View Details', duration = 2800, onDismiss }) => {
+const Toast = ({ id, type, title, message, details, detailsLabel = 'View Details', duration = 2800, hideProgress = false, onDismiss }) => {
   const isSuccess = type === 'success';
   const isError   = type === 'error';
   const [showDetails, setShowDetails] = useState(false);
@@ -239,7 +239,7 @@ const Toast = ({ id, type, title, message, details, detailsLabel = 'View Details
       </button>
 
       {/* Progress bar */}
-      <ProgressBar type={type} duration={duration} />
+      {!hideProgress && <ProgressBar type={type} duration={duration} />}
     </div>
   );
 };

@@ -9,6 +9,7 @@ const SplitTable = ({
   tableRef = null,
   empty = false,
   disableSplit = false,
+  bare = false,
   colgroup = null,
   footer = null,
 }) => {
@@ -33,6 +34,16 @@ const SplitTable = ({
   });
 
   const rows = enhanceRows(children);
+  const table = (
+    <table {...tableProps} ref={tableRef} className={className}>
+      {colgroup}
+      <thead>{head}</thead>
+      <tbody>{rows}</tbody>
+      {footer && <tfoot>{footer}</tfoot>}
+    </table>
+  );
+
+  if (bare) return table;
 
   return (
     <div
@@ -40,12 +51,7 @@ const SplitTable = ({
       data-split-at={splitAt}
     >
       <div className="split-table-panel split-table-panel-left">
-        <table {...tableProps} ref={tableRef} className={className}>
-          {colgroup}
-          <thead>{head}</thead>
-          <tbody>{rows}</tbody>
-          {footer && <tfoot>{footer}</tfoot>}
-        </table>
+        {table}
       </div>
     </div>
   );

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useCompany } from '../context/CompanyContext';
+import BackButton from './BackButton';
 
 /* ── SVG Icon kit ── */
 const Ic = {
@@ -130,10 +131,21 @@ const Layout = ({ children }) => {
     return () => { document.body.style.overflow = ''; };
   }, [sidebarOpen]);
   useEffect(() => {
-    const fn = e => { if (e.key === 'Escape') { setSidebarOpen(false); setProfileOpen(false); setSidebarProfileOpen(false); setCompanyModal(false); } };
+    const fn = e => {
+      if (e.key !== 'Escape') return;
+      if (sidebarOpen) {
+        e.preventDefault();
+        e.stopPropagation();
+        setSidebarOpen(false);
+        return;
+      }
+      setProfileOpen(false);
+      setSidebarProfileOpen(false);
+      setCompanyModal(false);
+    };
     window.addEventListener('keydown', fn);
     return () => window.removeEventListener('keydown', fn);
-  }, []);
+  }, [sidebarOpen]);
   useEffect(() => {
     const fn = e => { if (profileRef.current && !profileRef.current.contains(e.target)) setProfileOpen(false); };
     document.addEventListener('mousedown', fn);
@@ -208,12 +220,12 @@ const Layout = ({ children }) => {
 
   return (
     <div className={`layout-container${sidebarVisualCollapsed ? ' sidebar-is-collapsed' : ''}${menuCollapsed ? ' sidebar-menu-is-collapsed' : ''}`}>
-      <div className={`sidebar-overlay${sidebarOpen ? '' : ' hidden'}`} onClick={() => setSidebarOpen(false)} aria-hidden="true"/>
+      <div className={`sidebar-overlay${sidebarOpen ? '' : ' hidden'}`} onClick={() => setSidebarOpen(false)} aria-hidden={!sidebarOpen}/>
 
       {companyModal && <CompanyInfoModal onClose={() => setCompanyModal(false)}/>}
 
       {/* ── Sidebar ── */}
-      <aside className={`sidebar${sidebarOpen ? ' open' : ''}${sidebarVisualCollapsed ? ' collapsed' : ''}`} aria-label="Navigation">
+      <aside id="app-sidebar" className={`sidebar${sidebarOpen ? ' open' : ''}${sidebarVisualCollapsed ? ' collapsed' : ''}`} aria-label="Navigation">
         {/* Brand + collapse toggle */}
         <div className="sidebar-brand-row">
           <button type="button" className="sidebar-brand"
@@ -249,14 +261,6 @@ const Layout = ({ children }) => {
                 <MenuVisibilityIcon collapsed={menuCollapsed}/>
               </button>
             )}
-            <button
-              type="button"
-              className="sidebar-collapse-btn sidebar-mobile-close"
-              onClick={() => setSidebarOpen(false)}
-              aria-label="Close menu"
-              title="Close menu">
-              <Ic.X/>
-            </button>
           </div>
         </div>
 
@@ -387,21 +391,23 @@ const Layout = ({ children }) => {
       <div className="main-content">
         {/* Top bar — only on Dashboard; inner pages have no topbar (saves navbar-height space) */}
         {isDashboard ? (
-          <header className="top-bar">
+          <header className="top-bar app-mobile-header dashboard-mobile-header">
             <div className="top-bar-left">
-              <button className="hamburger" onClick={() => setSidebarOpen(v => !v)} aria-label="Toggle menu">
-                {sidebarOpen ? <Ic.X/> : <Ic.Menu/>}
+              <button type="button" className="hamburger dashboard-menu-button app-mobile-menu-button" onClick={() => setSidebarOpen(v => !v)}
+                aria-label={sidebarOpen ? 'Close navigation menu' : 'Open navigation menu'}
+                aria-expanded={sidebarOpen} aria-controls="app-sidebar">
+                <Ic.Menu/>
               </button>
             </div>
-            <div className="top-bar-right">
-              <button className="topbar-notif" aria-label="Notifications">
-                <Ic.Bell/><span className="notif-badge"/>
+            <div className="top-bar-right dashboard-header-actions">
+              <button type="button" className="topbar-notif dashboard-header-icon-button" aria-label="Notifications">
+                <Ic.Bell/><span className="notif-badge notification-indicator"/>
               </button>
               <div className="topbar-avatar-wrap" ref={profileRef}>
-                <button className="topbar-avatar-btn"
+                <button type="button" className="topbar-avatar-btn dashboard-profile-button"
                   onClick={() => setProfileOpen(v => !v)}
                   aria-expanded={profileOpen} aria-haspopup="true">
-                  <div className="topbar-avatar">{initials}</div>
+                  <div className="topbar-avatar dashboard-avatar">{initials}</div>
                   <span className="topbar-uname">{username || 'User'}</span>
                   <span className="topbar-chevron" style={{transform:profileOpen?'rotate(180deg)':'none',transition:'.2s'}}>
                     <Ic.ChevDown/>
@@ -432,19 +438,25 @@ const Layout = ({ children }) => {
           </header>
         ) : (
           /* Mobile only: minimal bar just for hamburger — hidden on desktop via CSS */
-          <header className="top-bar top-bar-inner" aria-hidden={undefined}>
+          <header className="top-bar top-bar-inner app-mobile-header" aria-hidden={undefined}>
             <div className="top-bar-left">
-              <button className="hamburger" onClick={() => setSidebarOpen(v => !v)} aria-label="Toggle menu">
-                {sidebarOpen ? <Ic.X/> : <Ic.Menu/>}
+              <button type="button" className="hamburger app-mobile-menu-button" onClick={() => setSidebarOpen(v => !v)}
+                aria-label={sidebarOpen ? 'Close navigation menu' : 'Open navigation menu'}
+                aria-expanded={sidebarOpen} aria-controls="app-sidebar">
+                <Ic.Menu/>
               </button>
             </div>
           </header>
         )}
 
-        <main className={`content${isDashboard ? ' content-dashboard' : ' content-inner'}`}>{children}</main>
+        <main className={`content${isDashboard ? ' content-dashboard' : ' content-inner'}`}>
+          {!isDashboard && <BackButton />}
+          {children}
+        </main>
       </div>
     </div>
   );
 };
 
 export default Layout;
+ 

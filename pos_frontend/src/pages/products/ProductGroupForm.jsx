@@ -21,14 +21,6 @@ const SaveIcon = () => (
     <polyline points="7 3 7 8 15 8"/>
   </svg>
 );
-const BackIcon = () => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
-    strokeLinecap="round" strokeLinejoin="round" style={{ width: 14, height: 14 }}>
-    <line x1="19" y1="12" x2="5" y2="12"/>
-    <polyline points="12 19 5 12 12 5"/>
-  </svg>
-);
-
 const Req = () => <span style={{ color: 'var(--danger)', marginLeft: 2 }}>*</span>;
 
 const spinEl = (
@@ -150,10 +142,6 @@ const ProductGroupForm = () => {
       {/* Page Header */}
       <div className="page-header animate-in">
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-          <button className="btn btn-outline-secondary btn-sm"
-            onClick={() => navigate('/products/groups')}>
-            <BackIcon /> Groups
-          </button>
           <div>
             <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 800 }}>
               {isEdit ? (isAdmin ? 'Edit Group' : 'View Group') : 'Add Product Group'}

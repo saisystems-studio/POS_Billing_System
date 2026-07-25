@@ -37,6 +37,13 @@ const GlobalTextFieldShortcuts = () => {
   useEffect(() => {
     const handler = event => {
       if (event.key !== 'Escape') return;
+      if (event.defaultPrevented) return;
+
+      /* Closing a modal or the mobile sidebar takes priority over
+         clearing a field that happens to retain focus behind it. */
+      if (document.querySelector('.modal-overlay')) return;
+      if (document.querySelector('.sidebar.open')) return;
+
       const target = event.target;
       const dropdownTarget = target?.closest?.(clearableDropdownSelector);
 
@@ -49,6 +56,14 @@ const GlobalTextFieldShortcuts = () => {
         event.stopPropagation();
         dispatchEscapeClear(dropdownTarget);
         setTimeout(() => dropdownTarget.focus?.(), 0);
+        return;
+      }
+
+      if (target?.dataset?.salesRate === 'true' && !target.disabled) {
+        event.preventDefault();
+        event.stopPropagation();
+        dispatchEscapeClear(target);
+        setTimeout(() => target.focus?.(), 0);
         return;
       }
 

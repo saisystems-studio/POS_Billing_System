@@ -39,6 +39,9 @@ const productService = {
    */
   createUnit: async (data) => {
     const response = await api.post('/units/', data);
+    unitsCache = null;
+    unitsPromise = null;
+    window.dispatchEvent(new Event('pos-units-changed'));
     return response.data;
   },
 

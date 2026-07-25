@@ -8,18 +8,13 @@ const notifyCustomersChanged = () => {
 };
 
 const customerService = {
-  /**
-   * Get the CustomerCode that will be assigned to the next new customer.
-   * Used to pre-fill the read-only code field when the Add form opens.
-   */
+  /*** Get the CustomerCode that will be assigned to the next new customer.* Used to pre-fill the read-only code field when the Add form opens.*/
   getNextCode: async () => {
     const response = await api.get('/customers/next-code/');
     return response.data.next_code; // e.g. "CUS_042"
   },
 
-  /**
-   * Get paginated list of customers
-   */
+  /*** Get paginated list of customers*/
   getCustomers: async (params = {}) => {
     const response = await api.get('/customers/', { params });
     return response.data;
@@ -39,27 +34,21 @@ const customerService = {
     return response.data;
   },
 
-  /**
-   * Update customer (Admin only)
-   */
+  /*** Update customer (Admin only)*/
   updateCustomer: async (id, data) => {
     const response = await api.put(`/customers/${id}/`, data);
     notifyCustomersChanged();
     return response.data;
   },
 
-  /**
-   * Partial update customer (Admin only)
-   */
+  /*** Partial update customer (Admin only)*/
   patchCustomer: async (id, data) => {
     const response = await api.patch(`/customers/${id}/`, data);
     notifyCustomersChanged();
     return response.data;
   },
 
-  /**
-   * Delete customer (Admin only)
-   */
+  /*** Delete customer (Admin only)*/
   deleteCustomer: async (id) => {
     const response = await api.delete(`/customers/${id}/`);
     notifyCustomersChanged();

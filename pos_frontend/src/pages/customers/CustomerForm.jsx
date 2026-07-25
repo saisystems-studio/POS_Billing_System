@@ -6,6 +6,7 @@ import LoadingSpinner from '../../components/LoadingSpinner';
 import customerService from '../../services/customerService';
 import billingService from '../../services/billingService';
 import api from '../../services/api';
+import useMobileDropdownPlacement from '../../hooks/useMobileDropdownPlacement';
 import { useAuth } from '../../context/AuthContext';
 import { useCompany } from '../../context/CompanyContext';
 import { useToast } from '../../context/ToastContext';
@@ -37,8 +38,8 @@ const EMPTY = {
 // FixedPriceCodeID is required when PriceCodeType='Fixed'.
 
 const Toggle = ({ value, onChange, disabled }) => (
-  <div style={{display:'flex',alignItems:'center',gap:'.4rem'}}>
-    <div onClick={()=>{if(!disabled)onChange(!value);}} style={{
+  <div className="customer-status-switch" style={{display:'flex',alignItems:'center',gap:'.4rem'}}>
+    <div className="customer-status-track" onClick={()=>{if(!disabled)onChange(!value);}} style={{
       position:'relative',width:36,height:20,borderRadius:10,
       background:value?BRAND:'#bdbdbd',transition:'background .2s',
       cursor:disabled?'not-allowed':'pointer',flexShrink:0,
@@ -50,11 +51,11 @@ const Toggle = ({ value, onChange, disabled }) => (
   </div>
 );
 const CBx = ({ checked, onChange, disabled, label }) => (
-  <label style={{display:'flex',alignItems:'center',gap:'.3rem',cursor:disabled?'default':'pointer',
+  <label className="form-check customer-checkbox-row" style={{display:'flex',alignItems:'center',gap:'.3rem',cursor:disabled?'default':'pointer',
     fontSize:'.74rem',fontWeight:500,color:'var(--text-label)',userSelect:'none'}}>
-    <input type="checkbox" checked={checked} onChange={onChange} disabled={disabled}
+    <input type="checkbox" className="form-check-input" checked={checked} onChange={onChange} disabled={disabled}
       style={{width:13,height:13,accentColor:BRAND,cursor:disabled?'not-allowed':'pointer'}}/>
-    {label}
+    <span className="form-check-label">{label}</span>
   </label>
 );
 const Spin = () => (
@@ -67,8 +68,8 @@ const FErr = ({ msg }) => msg
   ? <div style={{fontSize:'.67rem',color:'var(--danger)',marginTop:'.18rem',fontWeight:500,lineHeight:1.3}}>{msg}</div>
   : null;
 const F = ({ label, required, opt, error, children, style }) => (
-  <div style={{minWidth:0,...style}}>
-    <label style={{display:'block',fontWeight:700,fontSize:'.72rem',color:'var(--text-label)',marginBottom:'.2rem',whiteSpace:'nowrap'}}>
+  <div className="customer-form-field" style={{minWidth:0,...style}}>
+    <label className="field-label" style={{display:'block',fontWeight:700,fontSize:'.72rem',color:'var(--text-label)',marginBottom:'.2rem',whiteSpace:'nowrap'}}>
       {label}{required && <span style={{color:'var(--danger)',marginLeft:2}}>*</span>}
       {opt && <span style={{color:'var(--text-muted)',fontWeight:400,marginLeft:3,fontSize:'.70rem'}}> (optional)</span>}
     </label>
@@ -81,6 +82,7 @@ const SearchableDropdown = ({ value, onChange, options, placeholder, disabled, e
   const [open,  setOpen]  = useState(false);
   const ref = useRef(null);
   const inputRef = useRef(null);
+  const { menuClassName, mobileMenuStyle } = useMobileDropdownPlacement(ref, open);
   useEffect(() => {
     if (document.activeElement === inputRef.current) return;
     setQuery(value || '');
@@ -113,7 +115,7 @@ const SearchableDropdown = ({ value, onChange, options, placeholder, disabled, e
     return a.localeCompare(b);
   });
   return (
-    <div ref={ref} style={{position:'relative'}}>
+    <div ref={ref} className="app-dropdown" style={{position:'relative'}}>
       <input ref={inputRef} type="text" className={`form-control${error?' is-invalid':''}`}
         placeholder={placeholder} value={query} disabled={disabled} autoComplete="off"
         style={{...CI,paddingRight:'2rem',borderColor:error?'var(--danger)':undefined}}
@@ -127,7 +129,7 @@ const SearchableDropdown = ({ value, onChange, options, placeholder, disabled, e
       <span style={{position:'absolute',right:'.55rem',top:'50%',transform:'translateY(-50%)',
         pointerEvents:'none',color:'var(--text-muted)',fontSize:'.6rem'}}>▾</span>
       {open&&sorted.length>0&&(
-        <ul style={{position:'absolute',top:'100%',left:0,right:0,zIndex:9999,
+        <ul className={menuClassName} style={{...mobileMenuStyle,position:'absolute',top:'100%',left:0,right:0,zIndex:9999,
           background:'var(--card-bg)',border:'1.5px solid var(--primary)',
           borderTop:'none',borderRadius:'0 0 var(--radius) var(--radius)',
           boxShadow:'0 6px 20px rgba(0,0,0,.12)',maxHeight:200,overflowY:'auto',margin:0,padding:0,listStyle:'none'}}>
@@ -424,13 +426,13 @@ const CustomerForm = () => {
         </div>
       </div>
       {apiError && <div className="alert alert-warning animate-in"><span>⚠️</span><span>{apiError}</span></div>}
-      <form onSubmit={submit} noValidate>
+      <form className="customer-form-page" onSubmit={submit} noValidate>
         <div className="card animate-in animate-in-1" style={{width:'100%',maxWidth:1120,margin:'0 auto 1.25rem'}}>
           <div className="card-body" style={{padding:'1.125rem 1.5rem'}}>
             {/* Header */}
-            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',
+            <div className="customer-section-header" style={{display:'flex',alignItems:'center',justifyContent:'space-between',
               marginBottom:'1rem',paddingBottom:'.75rem',borderBottom:'1px solid var(--divider)'}}>
-              <div style={{display:'flex',alignItems:'center',gap:'.5rem'}}>
+              <div className="customer-status-control" style={{display:'flex',alignItems:'center',gap:'.5rem'}}>
                 <UserIcon/>
                 <span style={{fontWeight:800,fontSize:'.9rem',color:'var(--text-primary)',fontFamily:'var(--font-heading)'}}>Customer Details</span>
               </div>
@@ -446,7 +448,7 @@ const CustomerForm = () => {
               Basic Information
             </div>
 
-            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'.75rem',marginBottom:'.65rem',marginTop:'.65rem'}}>
+            <div className="customer-form-grid" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'.75rem',marginBottom:'.65rem',marginTop:'.65rem'}}>
               <F label="Customer Code">
                 <input type="text" className="form-control" value={custCode||'…'} readOnly tabIndex={-1}
                   style={{...CI,fontFamily:'ui-monospace,monospace',fontSize:'.75rem',background:'var(--bg-soft)',color:'var(--text-muted)',cursor:'not-allowed'}}/>
@@ -459,7 +461,7 @@ const CustomerForm = () => {
               </F>
             </div>
 
-            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'.75rem',marginBottom:'.65rem'}}>
+            <div className="customer-form-grid" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'.75rem',marginBottom:'.65rem'}}>
               <F label="Email" opt error={errors.EmailId}>
                 <input name="EmailId" type="email"
                   className={`form-control${errors.EmailId?' is-invalid':''}`}
@@ -476,13 +478,13 @@ const CustomerForm = () => {
               </F>
             </div>
 
-            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'.75rem',marginBottom:'.65rem'}}>
-              <div>
-                <label style={{display:'flex',alignItems:'center',justifyContent:'space-between',
+            <div className="customer-form-grid" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'.75rem',marginBottom:'.65rem'}}>
+              <div className="customer-form-field whatsapp-section">
+                <label className="field-label" style={{display:'flex',alignItems:'center',
                   fontWeight:700,fontSize:'.72rem',color:'var(--text-label)',marginBottom:'.2rem'}}>
                   <span>WhatsApp <span style={{color:'var(--text-muted)',fontWeight:400,fontSize:'.70rem'}}>(optional)</span></span>
-                  {!isReadOnly && <CBx checked={form.whatsapp_same} onChange={e=>change({target:{name:'whatsapp_same',type:'checkbox',checked:e.target.checked}})} disabled={isReadOnly} label="Same as Phone"/>}
                 </label>
+                {!isReadOnly && <CBx checked={form.whatsapp_same} onChange={e=>change({target:{name:'whatsapp_same',type:'checkbox',checked:e.target.checked}})} disabled={isReadOnly} label="Same as Phone"/>}
                 <input name="WhatsappNumber" type="tel" inputMode="numeric" maxLength={10}
                   className={`form-control${errors.WhatsappNumber?' is-invalid':''}`}
                   placeholder="10-digit mobile"
@@ -503,7 +505,7 @@ const CustomerForm = () => {
             <div style={{marginBottom:'.5rem',marginTop:'.75rem',fontSize:'.62rem',fontWeight:800,
               textTransform:'uppercase',letterSpacing:'.09em',color:'var(--primary)',
               paddingBottom:'.3rem',borderBottom:'1px solid var(--divider)'}}>Location</div>
-            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'.75rem',marginBottom:'.65rem',marginTop:'.65rem'}}>
+            <div className="customer-form-grid" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'.75rem',marginBottom:'.65rem',marginTop:'.65rem'}}>
               <F label="District" opt error={errors.District}>
                 <SearchableDropdown value={form.District} onChange={handleDistrictChange}
                   options={ALL_DISTRICT_NAMES} placeholder="Search district…" disabled={isReadOnly} error={errors.District}/>
@@ -513,7 +515,7 @@ const CustomerForm = () => {
                   options={INDIA_STATES} placeholder="Search state…" disabled={isReadOnly} error={errors.State}/>
               </F>
             </div>
-            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'.75rem',marginBottom:'.65rem'}}>
+            <div className="customer-form-grid" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'.75rem',marginBottom:'.65rem'}}>
               <F label="Country" opt>
                 <input name="Country" type="text" className="form-control" value={form.Country} readOnly tabIndex={-1}
                   style={{...CI,background:'var(--bg-soft)',color:'var(--text-primary)',cursor:'not-allowed',fontWeight:600}}/>
@@ -533,19 +535,19 @@ const CustomerForm = () => {
               textTransform:'uppercase',letterSpacing:'.09em',color:'var(--primary)',
               paddingBottom:'.3rem',borderBottom:'1px solid var(--divider)'}}>GST & Pricing</div>
 
-            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'.75rem',marginTop:'.65rem',marginBottom:'.65rem',alignItems:'start'}}>
+            <div className="customer-form-grid customer-gst-pricing-grid" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'.75rem',marginTop:'.65rem',marginBottom:'.65rem',alignItems:'start'}}>
 
               {/* LEFT: GST Customer checkbox — always visible, independent of company GST */}
-              <div>
-                <label style={{display:'inline-flex',alignItems:'center',gap:'.5rem',
+              <div className="gst-customer-control-wrap">
+                <label className="form-check customer-checkbox-row gst-customer-control" style={{display:'inline-flex',alignItems:'center',gap:'.5rem',
                   cursor:isReadOnly?'default':'pointer',padding:'.3rem .7rem',marginBottom:'.45rem',
                   border:`1.5px solid ${form.IsGSTCustomer?'var(--primary)':'var(--border-input)'}`,
                   borderRadius:'var(--radius)',background:form.IsGSTCustomer?'var(--primary-light)':'transparent',
                   transition:'all .15s',userSelect:'none'}}>
-                  <input type="checkbox" name="IsGSTCustomer" checked={form.IsGSTCustomer} onChange={change} disabled={isReadOnly}
+                  <input type="checkbox" className="form-check-input" name="IsGSTCustomer" checked={form.IsGSTCustomer} onChange={change} disabled={isReadOnly}
                     style={{width:14,height:14,accentColor:BRAND,cursor:isReadOnly?'not-allowed':'pointer'}}/>
-                  <span style={{fontSize:'.8rem',fontWeight:700,color:form.IsGSTCustomer?'var(--primary-dark)':'var(--text-muted)'}}>
-                    {form.IsGSTCustomer ? '✓ GST Customer' : 'GST Customer'}
+                  <span className="form-check-label" style={{fontSize:'.8rem',fontWeight:700,color:form.IsGSTCustomer?'var(--primary-dark)':'var(--text-muted)'}}>
+                    GST Customer
                   </span>
                 </label>
                 {form.IsGSTCustomer && (
@@ -566,9 +568,9 @@ const CustomerForm = () => {
               {/* RIGHT: Price Type + Default Price Code */}
               <div>
                 <F label="Price Code" required error={errors.PriceCodeType}>
-                  <div style={{display:'flex',gap:'.5rem',marginTop:'.1rem'}}>
+                  <div className="price-code-options price-code-type-options" role="radiogroup" aria-label="Price code type" style={{display:'flex',gap:'.5rem',marginTop:'.1rem'}}>
                     {['Random','Fixed'].map(pt => (
-                      <label key={pt} style={{display:'flex',alignItems:'center',gap:'.35rem',
+                      <label key={pt} className={`price-code-option${form.PriceCodeType===pt?' selected':''}`} style={{display:'flex',alignItems:'center',gap:'.35rem',
                         cursor:isReadOnly?'default':'pointer',padding:'.3rem .75rem',
                         border:`1.5px solid ${form.PriceCodeType===pt?'var(--primary)':'var(--border-input)'}`,
                         borderRadius:'var(--radius)',background:form.PriceCodeType===pt?'var(--primary-light)':'transparent',
@@ -577,7 +579,7 @@ const CustomerForm = () => {
                         <input type="radio" name="PriceCodeType" value={pt}
                           checked={form.PriceCodeType===pt} onChange={change} disabled={isReadOnly}
                           style={{accentColor:BRAND}}/>
-                        {pt}
+                        <span>{pt}</span>
                       </label>
                     ))}
                   </div>
@@ -587,9 +589,9 @@ const CustomerForm = () => {
                 {form.PriceCodeType==='Fixed' && (
                   <div style={{marginTop:'.6rem'}}>
                     <F label="Default Price Code" required error={errors.FixedPriceCodeID}>
-                      <div style={{display:'flex',gap:'.4rem',flexWrap:'wrap',marginTop:'.2rem'}}>
+                      <div className="default-price-code-options" role="radiogroup" aria-label="Default price code" style={{display:'flex',gap:'.4rem',flexWrap:'wrap',marginTop:'.2rem'}}>
                         {priceCodes.map(pc => (
-                          <label key={pc.id} style={{display:'flex',alignItems:'center',gap:'.3rem',
+                          <label key={pc.id} className={`default-price-code-option${String(form.FixedPriceCodeID)===String(pc.id)?' selected':''}`} style={{display:'flex',alignItems:'center',gap:'.3rem',
                             cursor:isReadOnly?'default':'pointer',padding:'.28rem .65rem',
                             border:`1.5px solid ${String(form.FixedPriceCodeID)===String(pc.id)?'var(--primary)':'var(--border-input)'}`,
                             borderRadius:'var(--radius)',
@@ -601,7 +603,7 @@ const CustomerForm = () => {
                               checked={String(form.FixedPriceCodeID)===String(pc.id)}
                               onChange={change} disabled={isReadOnly}
                               style={{accentColor:BRAND}}/>
-                            {pc.DisplayLabel}
+                            <span>{pc.DisplayLabel}</span>
                           </label>
                         ))}
                         <button type="button" onClick={()=>setShowPriceRef(true)}
@@ -627,7 +629,7 @@ const CustomerForm = () => {
           </div>
         </div>
 
-        <div className="form-actions-bar animate-in">
+        <div className="form-actions-bar customer-form-actions animate-in">
           <button type="button" className="btn btn-outline-secondary" onClick={() => goBackAfterCustomerEntry()} disabled={saving}>Cancel</button>
           {!isReadOnly && (
             <button type="submit" className="btn btn-primary" disabled={saving}>

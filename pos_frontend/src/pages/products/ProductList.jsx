@@ -1,4 +1,4 @@
-import { useState, useEffect, useLayoutEffect, useCallback, useRef } from 'react';
+import { Fragment, useState, useEffect, useLayoutEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import Layout from '../../components/Layout';
@@ -16,6 +16,7 @@ import {
   isCanceledImport,
   isTimeoutImport,
 } from '../../utils/excelImportFeedback';
+import useResponsivePageSize from '../../hooks/useResponsivePageSize';
 
 const TrashIcon  = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{width:14,height:14}}><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>;
 const ViewIcon   = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{width:14,height:14}}><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>;
@@ -28,7 +29,6 @@ const ImportSpin = () => (
   </svg>
 );
 
-const PAGE_SIZE = 13;
 const BLANK = '\u2014';
 const PRICE_CODE_PAGE_STORAGE_KEY = 'price-code-list-page';
 const PRICE_CODE_CACHE_STORAGE_KEY = 'price-code-list-cache-v1';
@@ -142,6 +142,8 @@ const ProductList = () => {
   const [deleting,    setDeleting]   = useState(false);
   const [selected,    setSelected]   = useState(new Set());
   const [viewMore,    setViewMore]   = useState(null);
+  const [expandedId,  setExpandedId] = useState(null);
+  const toggleExpanded = (id) => setExpandedId(prev => prev === id ? null : id);
   const [selectedProductId, setSelectedProductId] = useState(null);
   const [hoveredProductId, setHoveredProductId] = useState(null);
   const [dismissedActionProductId, setDismissedActionProductId] = useState(null);
@@ -155,6 +157,10 @@ const ProductList = () => {
   const importAbortRef = useRef(null);
   const navigationLockRef = useRef(false);
   const [dropPos, setDropPos] = useState({ top: 0, right: 0 });
+  const { pageSize, containerRef, rowRef, bottomRef } = useResponsivePageSize({
+    defaultRowHeight: 29,
+    mobileRowHeight: 246,
+  });
 
   // Position portal dropdown under the Export button
   useLayoutEffect(() => {
@@ -165,8 +171,8 @@ const ProductList = () => {
   }, [showDataMenu]);
 
   const multiSelectActive = selected.size > 1;
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const pageStartIndex = (loadedPage - 1) * PAGE_SIZE;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const pageStartIndex = (loadedPage - 1) * pageSize;
 
   useEffect(() => {
     if (page > totalPages) setPage(totalPages);
@@ -178,7 +184,14 @@ const ProductList = () => {
   }, [search]);
 
   useEffect(() => {
-    searchInputRef.current?.focus();
+    // Skip on mobile: focusing the input pops the on-screen keyboard
+    // immediately on page load and can trigger an unwanted horizontal
+    // scroll of the page (the focused-element-into-view behavior finds
+    // the off-canvas sidebar's true layout box even though it's
+    // transformed out of sight, and shifts everything left to reach it).
+    if (window.matchMedia('(min-width: 769px)').matches) {
+      searchInputRef.current?.focus();
+    }
   }, []);
 
   useEffect(() => {
@@ -219,11 +232,16 @@ const ProductList = () => {
   }, []);
 
   useEffect(() => { setPage(1); }, [groupFilter, statusFilter]);
+  useEffect(() => {
+    setPage(1);
+    setProducts([]);
+    setSelectedProductId(null);
+  }, [pageSize]);
 
   const fetchProducts = useCallback(async (options = {}) => {
     const seq = ++fetchSeqRef.current;
     const requestedPage = options.page ?? page;
-    const params = { page: requestedPage, page_size: PAGE_SIZE, ordering: 'id' };
+    const params = { page: requestedPage, page_size: pageSize, ordering: 'id' };
     if (debSearch)   params.search   = debSearch;
     if (groupFilter) params.group = groupFilter;
     if (statusFilter) params.status = statusFilter;
@@ -247,7 +265,7 @@ const ProductList = () => {
       setTotal(data.count ?? rows.length);
       setLoadedPage(requestedPage);
       const totalCount = data.count ?? rows.length;
-      const maxPage = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+      const maxPage = Math.max(1, Math.ceil(totalCount / pageSize));
       [requestedPage - 1, requestedPage + 1].filter(n => n >= 1 && n <= maxPage).forEach(n => {
         const nextParams = { ...params, page: n };
         prefetchCachedPage('products', makePageKey('products', nextParams), () => productService.getProducts(nextParams));
@@ -258,7 +276,7 @@ const ProductList = () => {
     } finally {
       if (seq === fetchSeqRef.current) setLoading(false);
     }
-  }, [page, debSearch, groupFilter, statusFilter]);
+  }, [page, pageSize, debSearch, groupFilter, statusFilter]);
 
   useEffect(() => { fetchProducts(); }, [fetchProducts]);
 
@@ -449,20 +467,20 @@ const ProductList = () => {
     const subtitle = isSelected
       ? `${data.length} selected record${data.length !== 1 ? 's' : ''}`
       : (debSearch || groupFilter)
-        ? `Filtered â€” ${data.length} record${data.length !== 1 ? 's' : ''}`
-        : `All Records â€” ${data.length} total`;
+        ? `Filtered — ${data.length} record${data.length !== 1 ? 's' : ''}`
+        : `All Records — ${data.length} total`;
     const dateStr = new Date().toLocaleString('en-IN', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' });
 
     const rowsHtml = data.map((p, idx) => {
       const status = p.IsActive !== false ? 'Active' : 'Inactive';
       return `<tr>
         <td class="num">${idx+1}</td>
-        <td>${p.GroupName ? `<span class="badge">${p.GroupName}</span>` : '<span class="na">â€”</span>'}</td>
+        <td>${p.GroupName ? `<span class="badge">${p.GroupName}</span>` : '<span class="na">—</span>'}</td>
         <td class="bold">${p.ProductName||''}</td>
-        <td class="tamil">${p.ProductNameTamil||'â€”'}</td>
-        <td class="num">${p.Quantity??'â€”'}</td>
+        <td class="tamil">${p.ProductNameTamil||'—'}</td>
+        <td class="num">${p.Quantity??'—'}</td>
         <td class="c">${p.Units||''}</td>
-        <td class="desc">${p.Description||'â€”'}</td>
+        <td class="desc">${p.Description||'—'}</td>
         <td class="tag ${status==='Active'?'active':'inactive'}">${status}</td>
       </tr>`;
     }).join('');
@@ -551,7 +569,7 @@ const ProductList = () => {
     <tbody>${rowsHtml}</tbody>
   </table>
   <div class="rpt-footer">
-    <span>POS Billing System â€” Product Report</span>
+    <span>POS Billing System — Product Report</span>
     <span>Printed: ${dateStr}</span>
   </div>
   <script>window.onload = function(){ window.print(); }<\/script>
@@ -713,7 +731,7 @@ const ProductList = () => {
           <input ref={fileInputRef} type="file" accept=".xlsx" style={{display:'none'}} onChange={handleImportFile}/>
         </div>
 
-        {/* Export dropdown â€” portal renders at fixed screen position */}
+        {/* Export dropdown — portal renders at fixed screen position */}
         {showDataMenu && createPortal(
           <div ref={dropMenuRef} style={{
             position:'fixed', top: dropPos.top, right: dropPos.right,
@@ -758,18 +776,19 @@ const ProductList = () => {
       <div className={`product-list-workspace${viewMore ? ' drawer-open' : ''}`}>
         <div className="card animate-in animate-in-1 product-list-card">
           <div className="card-body">
-                <div className="product-table-zone" tabIndex={0} onKeyDown={handleListKeyDown} onFocus={handleTableFocus}>
-                  <div className={`table-wrapper table-wrapper-scroll${!loading && products.length===0 ? ' is-empty' : ''}`}>
+                <div ref={containerRef} className="product-table-zone" tabIndex={0} onKeyDown={handleListKeyDown} onFocus={handleTableFocus}>
+                  <div className={`desktop-table-view table-wrapper table-wrapper-scroll${!loading && products.length===0 ? ' is-empty' : ''}`}>
                     <table className="product-list-table">
                       <colgroup>
                         <col className="col-checkbox" />
                         <col className="col-sno" />
-                        <col className="col-group" />
+                        <col className="col-group hide-below-xl" />
                         <col className="col-product" />
-                        <col className="col-qty" />
-                        <col className="col-unit" />
-                        <col className="col-gst" />
+                        <col className="col-qty hide-below-sm" />
+                        <col className="col-unit hide-below-md" />
+                        <col className="col-gst hide-below-xl" />
                         <col className="col-status" />
+                        <col className="col-more responsive-more-col" />
                       </colgroup>
 
                       <thead>
@@ -783,19 +802,20 @@ const ProductList = () => {
                               title={allVisibleSelected ? 'Unselect all visible products' : 'Select all visible products'}/>
                           </th>
                           <th className="product-col-sno">S.No</th>
-                          <th className="product-col-group">Group</th>
+                          <th className="product-col-group hide-below-xl">Group</th>
                           <th className="product-col-name">Product Name</th>
-                          <th className="product-col-qty">Qty</th>
-                          <th className="product-col-unit">Unit</th>
-                          <th className="product-col-gst">GST</th>
+                          <th className="product-col-qty hide-below-sm">Qty</th>
+                          <th className="product-col-unit hide-below-md">Unit</th>
+                          <th className="product-col-gst hide-below-xl">GST</th>
                           <th className="product-col-status">Status</th>
+                          <th className="responsive-more-cell">More</th>
                         </tr>
                       </thead>
 
                       <tbody>
                     {products.length===0 ? (
                       <tr className="product-empty-row">
-                        <td colSpan={8} className="product-empty-cell">
+                        <td colSpan={9} className="product-empty-cell">
                           {debSearch || groupFilter || statusFilter ? 'No matching records found' : 'No records found'}
                         </td>
                       </tr>
@@ -807,8 +827,10 @@ const ProductList = () => {
                       const unit = productUnit(p);
                       const gst = productGst(p);
                       const active = productIsActive(p);
+                      const isExpanded = expandedId === p.id;
                       return (
-                        <tr key={p.id}
+                        <Fragment key={p.id}>
+                        <tr ref={idx === 0 ? rowRef : undefined}
                           className={`table-row-hover product-list-row${isActive ? ' row-keyboard-selected' : ''}`}
                           title={name || 'Product'}
                           tabIndex={-1}
@@ -831,11 +853,11 @@ const ProductList = () => {
                               title="Select product"/>
                           </td>
                           <td className="product-cell-sno">{pageStartIndex+idx+1}</td>
-                          <td className="product-cell-group" title={group || BLANK}>{group || BLANK}</td>
+                          <td className="product-cell-group hide-below-xl" title={group || BLANK}>{group || BLANK}</td>
                           <td className="product-cell-name" title={name || BLANK}>{name || BLANK}</td>
-                          <td className="product-cell-qty" title={qty ?? BLANK}>{qty ?? BLANK}</td>
-                          <td className="product-cell-unit" title={unit || BLANK}>{unit || BLANK}</td>
-                          <td className="product-cell-gst" title={`${gst ?? 0}%`}>{gst ?? 0}%</td>
+                          <td className="product-cell-qty hide-below-sm" title={qty ?? BLANK}>{qty ?? BLANK}</td>
+                          <td className="product-cell-unit hide-below-md" title={unit || BLANK}>{unit || BLANK}</td>
+                          <td className="product-cell-gst hide-below-xl" title={`${gst ?? 0}%`}>{gst ?? 0}%</td>
                           <td className="product-cell-status row-action-anchor">
                             <span className={`${active ? 'status-active' : 'status-inactive'} list-status-pill ${active ? 'active' : 'inactive'}`}>
                               {active ? 'Active' : 'Inactive'}
@@ -849,7 +871,27 @@ const ProductList = () => {
                               ]}
                             />
                           </td>
+                          <td className="responsive-more-cell">
+                            <button type="button" className="table-more-button"
+                              onClick={e => { e.stopPropagation(); toggleExpanded(p.id); }}
+                              aria-expanded={isExpanded}>
+                              {isExpanded ? 'Less' : 'More'}
+                            </button>
+                          </td>
                         </tr>
+                        {isExpanded && (
+                          <tr className="detail-row">
+                            <td colSpan={9} className="detail-row-cell">
+                              <div className="detail-grid">
+                                <div><span>Group</span><strong>{group || BLANK}</strong></div>
+                                <div><span>Qty</span><strong>{qty ?? BLANK}</strong></div>
+                                <div><span>Unit</span><strong>{unit || BLANK}</strong></div>
+                                <div><span>GST</span><strong>{gst ?? 0}%</strong></div>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                        </Fragment>
                       );
                     })}
                       </tbody>
@@ -857,7 +899,7 @@ const ProductList = () => {
                   </div>
                 </div>
 
-                <div className="product-list-footer">
+                <div ref={bottomRef} className="product-list-footer">
                   <div className="product-record-info">
                     Showing {products.length ? `${pageStartIndex + 1}-${Math.min(pageStartIndex + products.length, total)}` : <>0&ndash;0</>} of {total} records
                   </div>

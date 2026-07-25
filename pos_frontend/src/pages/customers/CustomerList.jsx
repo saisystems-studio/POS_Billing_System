@@ -1,24 +1,23 @@
-﻿import { useState, useEffect, useLayoutEffect, useCallback, useRef } from 'react';
+﻿import { Fragment, useState, useEffect, useLayoutEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import Layout from '../../components/Layout';
 import ConfirmModal from '../../components/ConfirmModal';
 import SplitTable from '../../components/SplitTable';
-import RowActionPopup from '../../components/RowActionPopup';
 import customerService from '../../services/customerService';
 import { clearPageCache, fetchCachedPage, getCachedPage, makePageKey, prefetchCachedPage } from '../../services/pageCache';
 import { useAuth } from '../../context/AuthContext';
-import { Upload, FileDown, FileSpreadsheet, FileText } from 'lucide-react';
+import { Upload, FileDown, FileSpreadsheet, FileText, Eye, Trash2 } from 'lucide-react';
+import useResponsivePageSize from '../../hooks/useResponsivePageSize';
 
 const TrashIcon = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{width:14,height:14}}><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>;
 const MoreIcon  = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{width:14,height:14}}><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg>;
 const CloseIcon = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{width:14,height:14}}><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>;
-const SearchIcon= () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{width:15,height:15}}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>;
+import SharedSearchField from '../../components/SharedSearchField';
 const PlusIcon  = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{width:14,height:14}}><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>;
 const ViewIcon  = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{width:14,height:14}}><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>;
 
-const PAGE_SIZE = 13;
-const fmt = (str) => str ? new Date(str).toLocaleDateString('en-IN', {day:'2-digit',month:'short',year:'numeric'}) : 'â€”';
+const fmt = (str) => str ? new Date(str).toLocaleDateString('en-IN', {day:'2-digit',month:'short',year:'numeric'}) : '—';
 
 const parseAddress = (addr) => {
   if (!addr) return {};
@@ -41,7 +40,7 @@ const customerWhatsapp = c => c.whatsapp_number ?? c.WhatsappNumber ?? '';
 const customerDistrict = c => c.district ?? c.District ?? parseAddress(c.Address).district ?? '';
 const customerState = c => c.state ?? c.State ?? parseAddress(c.Address).state ?? '';
 
-/* â”€â”€ View More Modal â”€â”€ */
+/* ── View More Modal ── */
 const ViewMoreModal = ({ customer, onClose }) => {
   if (!customer) return null;
   const addr = parseAddress(customer.Address);
@@ -57,16 +56,16 @@ const ViewMoreModal = ({ customer, onClose }) => {
             {[
               ['Code',       customer.CustomerCode],
               ['Phone',      customer.PhoneNumber],
-              ['WhatsApp',   customer.WhatsappNumber||'â€”'],
-              ['Email',      customer.EmailId||'â€”'],
-              ['Address',    addr.address||'â€”'],
-              ['District',   addr.district||'â€”'],
-              ['State',      addr.state||'â€”'],
-              ['Country',    addr.country||'â€”'],
-              ['PIN Code',   addr.pin||'â€”'],
-              ['GST Type',   addr.gstType||'â€”'],
-              ['GST No',     addr.gstNo||'â€”'],
-              ['Price Type', customer.PriceCodeType||'â€”'],
+              ['WhatsApp',   customer.WhatsappNumber||'—'],
+              ['Email',      customer.EmailId||'—'],
+              ['Address',    addr.address||'—'],
+              ['District',   addr.district||'—'],
+              ['State',      addr.state||'—'],
+              ['Country',    addr.country||'—'],
+              ['PIN Code',   addr.pin||'—'],
+              ['GST Type',   addr.gstType||'—'],
+              ['GST No',     addr.gstNo||'—'],
+              ['Price Type', customer.PriceCodeType||'—'],
               ['Reward Points', `${parseFloat(customer.Customer_Redeem_Points||0).toFixed(0)} pts`],
               ['Status',     customer.IsActive!==false?'Active':'Inactive'],
               ['Created On', fmt(customer.CreatedOn)],
@@ -118,6 +117,8 @@ const CustomerList = () => {
   const [hoveredCustomerId, setHoveredCustomerId] = useState(null);
   const [dismissedActionCustomerId, setDismissedActionCustomerId] = useState(null);
   const [viewMore,   setViewMore]   = useState(null);
+  const [expandedId, setExpandedId] = useState(null);
+  const toggleExpanded = (id) => setExpandedId(prev => prev === id ? null : id);
   const [showDataMenu,setShowDataMenu]= useState(false);
   const dataMenuRef  = useRef(null);
   const exportBtnRef = useRef(null);
@@ -125,6 +126,10 @@ const CustomerList = () => {
   const searchInputRef = useRef(null);
   const fetchSeqRef = useRef(0);
   const [dropPos, setDropPos] = useState({ top: 0, right: 0 });
+  const { pageSize, containerRef, rowRef, bottomRef } = useResponsivePageSize({
+    defaultRowHeight: 29,
+    mobileRowHeight: 230,
+  });
 
   // Position portal dropdown under the Export button
   useLayoutEffect(() => {
@@ -134,7 +139,7 @@ const CustomerList = () => {
     }
   }, [showDataMenu]);
 
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const multiSelectActive = selected.size > 1;
 
   useEffect(() => {
@@ -195,9 +200,18 @@ const CustomerList = () => {
     const t = setTimeout(() => { setDeb(search); setPage(1); }, 400);
     return () => clearTimeout(t);
   }, [search]);
+  useEffect(() => {
+    setPage(1);
+    setCustomers([]);
+    setSelectedCustomerId(null);
+  }, [pageSize]);
 
   useEffect(() => {
-    searchInputRef.current?.focus();
+    // Skip on mobile: focusing on load pops the keyboard immediately and
+    // can trigger an unwanted horizontal scroll of the page.
+    if (window.matchMedia('(min-width: 769px)').matches) {
+      searchInputRef.current?.focus();
+    }
   }, []);
 
   useEffect(() => {
@@ -221,7 +235,7 @@ const CustomerList = () => {
 
   const fetchCustomers = useCallback(async () => {
     const seq = ++fetchSeqRef.current;
-    const params = { page, page_size: PAGE_SIZE };
+    const params = { page, page_size: pageSize };
     if (deb) params.search = deb;
     const cacheKey = makePageKey('customers', params);
     const cached = getCachedPage('customers', cacheKey);
@@ -243,7 +257,7 @@ const CustomerList = () => {
       setLoadedPage(page);
       const rows = data.results !== undefined ? data.results : (Array.isArray(data) ? data : []);
       const totalCount = data.count ?? rows.length;
-      const maxPage = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+      const maxPage = Math.max(1, Math.ceil(totalCount / pageSize));
       [page - 1, page + 1].filter(n => n >= 1 && n <= maxPage).forEach(n => {
         const nextParams = { ...params, page: n };
         prefetchCachedPage('customers', makePageKey('customers', nextParams), () => customerService.getCustomers(nextParams));
@@ -254,7 +268,7 @@ const CustomerList = () => {
     } finally {
       if (seq === fetchSeqRef.current) setLoading(false);
     }
-  }, [page, deb]);
+  }, [page, pageSize, deb]);
 
   useEffect(() => { fetchCustomers(); }, [fetchCustomers]);
 
@@ -358,7 +372,7 @@ const CustomerList = () => {
     const isSelected = selected.size > 0;
     const subtitle = isSelected
       ? `${data.length} selected record${data.length !== 1 ? 's' : ''}`
-      : deb ? `Search: "${deb}" â€” ${data.length} record${data.length !== 1 ? 's' : ''}` : `All Records â€” ${data.length} total`;
+      : deb ? `Search: "${deb}" — ${data.length} record${data.length !== 1 ? 's' : ''}` : `All Records — ${data.length} total`;
     const dateStr = new Date().toLocaleString('en-IN', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' });
 
     const rowsHtml = data.map((c, idx) => {
@@ -369,13 +383,13 @@ const CustomerList = () => {
         <td class="mono">${c.CustomerCode||''}</td>
         <td class="bold">${c.CustomerName||''}</td>
         <td>${c.PhoneNumber||''}</td>
-        <td>${c.WhatsappNumber||'â€”'}</td>
-        <td>${addr.address||'â€”'}</td>
-        <td>${addr.district||'â€”'}</td>
-        <td>${addr.state||'â€”'}</td>
-        <td class="num">${addr.pin||'â€”'}</td>
-        <td>${addr.gstType&&addr.gstType!=='Unregistered'?`<span class="gst-badge">${addr.gstType}</span>`:'<span class="na">â€”</span>'}</td>
-        <td class="mono small">${addr.gstNo||'â€”'}</td>
+        <td>${c.WhatsappNumber||'—'}</td>
+        <td>${addr.address||'—'}</td>
+        <td>${addr.district||'—'}</td>
+        <td>${addr.state||'—'}</td>
+        <td class="num">${addr.pin||'—'}</td>
+        <td>${addr.gstType&&addr.gstType!=='Unregistered'?`<span class="gst-badge">${addr.gstType}</span>`:'<span class="na">—</span>'}</td>
+        <td class="mono small">${addr.gstNo||'—'}</td>
         <td class="tag ${status==='Active'?'active':'inactive'}">${status}</td>
       </tr>`;
     }).join('');
@@ -389,14 +403,14 @@ const CustomerList = () => {
   @page { size: A4 landscape; margin: 12mm 10mm 10mm; }
   *  { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: Arial, Helvetica, sans-serif; font-size: 10px; color: #1e1410; background: #fff; }
-  /* â”€â”€ header â”€â”€ */
+  /* ── header ── */
   .rpt-header { display: flex; justify-content: space-between; align-items: flex-end;
     border-bottom: 2.5px solid #8A5125; padding-bottom: 7px; margin-bottom: 10px; }
   .rpt-header-left h1 { font-size: 18px; font-weight: 800; color: #8A5125; letter-spacing: -.4px; line-height: 1.1; }
   .rpt-header-left p  { font-size: 9px; color: #7a6758; margin-top: 3px; }
   .rpt-header-right   { text-align: right; font-size: 9px; color: #7a6758; line-height: 1.7; }
   .rpt-header-right strong { color: #4a3426; }
-  /* â”€â”€ table â”€â”€ */
+  /* ── table ── */
   table { width: 100%; border-collapse: collapse; table-layout: fixed; }
   col.c-sno   { width: 28px; }
   col.c-code  { width: 62px; }
@@ -432,7 +446,7 @@ const CustomerList = () => {
   .tag { font-weight: 700; text-align: center; font-size: 8.5px; }
   .tag.active   { color: #1b5e20; }
   .tag.inactive { color: #c62828; }
-  /* â”€â”€ footer â”€â”€ */
+  /* ── footer ── */
   .rpt-footer { margin-top: 10px; display: flex; justify-content: space-between;
     font-size: 8.5px; color: #a09080; border-top: 1px solid #efe5da; padding-top: 5px; }
   @media print {
@@ -479,7 +493,7 @@ const CustomerList = () => {
     <tbody>${rowsHtml}</tbody>
   </table>
   <div class="rpt-footer">
-    <span>POS Billing System â€” Customer Report</span>
+    <span>POS Billing System — Customer Report</span>
     <span>Printed: ${dateStr}</span>
   </div>
   <script>window.onload = function(){ window.print(); }<\/script>
@@ -503,9 +517,9 @@ const CustomerList = () => {
   const buildPages = () => {
     if (totalPages <= 7) return Array.from({length:totalPages},(_,i)=>i+1);
     const pages = [];
-    if (loadedPage<=4) pages.push(1,2,3,4,5,'â€¦',totalPages);
-    else if (loadedPage>=totalPages-3) pages.push(1,'â€¦',totalPages-4,totalPages-3,totalPages-2,totalPages-1,totalPages);
-    else pages.push(1,'â€¦',loadedPage-1,loadedPage,loadedPage+1,'â€¦',totalPages);
+    if (loadedPage<=4) pages.push(1,2,3,4,5,'…',totalPages);
+    else if (loadedPage>=totalPages-3) pages.push(1,'…',totalPages-4,totalPages-3,totalPages-2,totalPages-1,totalPages);
+    else pages.push(1,'…',loadedPage-1,loadedPage,loadedPage+1,'…',totalPages);
     return pages;
   };
 
@@ -520,13 +534,14 @@ const CustomerList = () => {
             {total>0?`${total} customer${total!==1?'s':''} registered`:'Manage and organise your customer records'}
           </p>
         </div>
-        <div className="d-flex gap-2 align-center list-header-actions">
-          <div className="input-group list-header-search">
-            <span className="input-group-text"><SearchIcon/></span>
-            <input ref={searchInputRef} type="text" className="form-control"
-              placeholder="Search customers..."
-              value={search} onChange={e => setSearch(e.target.value)}/>
-          </div>
+        <div className="d-flex gap-2 align-center list-header-actions customer-mobile-toolbar customer-list-toolbar">
+          <SharedSearchField
+            ref={searchInputRef}
+            className="list-header-search customer-search-field"
+            placeholder="Search by name, code, phone, WhatsApp..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+          />
           {multiSelectActive && isAdmin && (
             <button className="btn btn-danger btn-sm" onClick={() => setShowDel(true)}>
               <TrashIcon/> Delete ({selected.size})
@@ -542,13 +557,13 @@ const CustomerList = () => {
               <FileDown size={14}/> Export
             </button>
           </div>
-          <button className="btn btn-primary btn-sm" onClick={() => navigate('/customers/new')}>
+          <button className="btn btn-primary btn-sm add-customer-button" onClick={() => navigate('/customers/new')}>
             <PlusIcon/> Add Customer
           </button>
           <input ref={fileInputRef} type="file" accept=".csv,.xlsx,.xls" style={{display:'none'}} onChange={handleImportFile}/>
         </div>
 
-        {/* Export dropdown â€” portal renders at fixed screen position */}
+        {/* Export dropdown — portal renders at fixed screen position */}
         {showDataMenu && createPortal(
           <div ref={dataMenuRef} style={{
             position:'fixed', top: dropPos.top, right: dropPos.right,
@@ -592,55 +607,55 @@ const CustomerList = () => {
 
       <div className="card animate-in animate-in-1">
         <div className="card-body">
-          <div className="list-toolbar" style={{display:'none'}}>
-            <div className="input-group">
-              <span className="input-group-text"><SearchIcon/></span>
-              <input type="text" className="form-control"
-                placeholder="Search by name, code, phone, WhatsApp, email or stateâ€¦"
-                value={search} onChange={e => setSearch(e.target.value)}/>
-            </div>
-          </div>
-
-              <div className="list-keyboard-zone" tabIndex={0} onKeyDown={handleListKeyDown}>
+              <div ref={containerRef} className="list-keyboard-zone" tabIndex={0} onKeyDown={handleListKeyDown}>
+              <div className="desktop-table-view">
               <SplitTable
-                className={`table table-compact customer-table compact-list-table data-table${multiSelectActive?' has-selection':''}`}
+                className={`table table-compact customer-table customer-responsive-table compact-list-table data-table${isAdmin?' is-admin':''}${multiSelectActive?' has-selection':''}`}
                 tableProps={{ style: { tableLayout: 'fixed', width: '100%' } }}
                 colgroup={(
                   <colgroup>
-                    {isAdmin && <col style={{width:'4%'}} />}
-                    <col style={{width:'7%'}} />
-                    <col style={{width:isAdmin ? '12%' : '13%'}} />
-                    <col style={{width:isAdmin ? '29%' : '31%'}} />
-                    <col style={{width:'14%'}} />
-                    <col style={{width:'14%'}} />
-                    <col style={{width:'10%'}} />
-                    <col style={{width:isAdmin ? '10%' : '11%'}} />
+                    {isAdmin && <col className="customer-col-select customer-hide-small-select" style={{width:'4%'}} />}
+                    <col className="customer-col-sno" style={{width:'7%'}} />
+                    <col className="customer-col-code customer-hide-mobile hide-below-xl" style={{width:isAdmin ? '12%' : '13%'}} />
+                    <col className="customer-col-name" style={{width:isAdmin ? '29%' : '31%'}} />
+                    <col className="customer-col-phone customer-hide-medium-mobile" style={{width:'14%'}} />
+                    <col className="customer-col-whatsapp customer-hide-mobile hide-below-xl" style={{width:'14%'}} />
+                    <col className="customer-col-district customer-hide-mobile hide-below-xl" style={{width:'10%'}} />
+                    <col className="customer-col-state customer-hide-mobile hide-below-xl" style={{width:isAdmin ? '10%' : '11%'}} />
+                    <col className="customer-row-actions-col" />
+                    <col className="customer-col-more customer-show-mobile responsive-more-col" />
                   </colgroup>
                 )}
                 empty={customers.length===0}
                 head={(
                     <tr style={{background:'#8A5125'}}>
-                      {isAdmin && <th className="row-cb-cell" style={{background:'#8A5125',textAlign:'center',verticalAlign:'middle'}}>
+                      {isAdmin && <th className="row-cb-cell customer-col-select customer-hide-small-select" style={{background:'#8A5125',textAlign:'center',verticalAlign:'middle'}}>
                         <input type="checkbox"
                           checked={allOnPageSelected}
+                          aria-label="Select all visible customers"
                           ref={el => { if (el) el.indeterminate = anyOnPageSelected && !allOnPageSelected; }}
                           onChange={toggleSelectAll}
                           title={allOnPageSelected ? 'Unselect all customers on this page' : 'Select all customers on this page'}
                           style={{width:15,height:15,cursor:'pointer',accentColor:'#8A5125',verticalAlign:'middle',display:'block',margin:'0 auto'}}/>
                       </th>}
-                      <th style={{fontWeight:800,color:'#fff',background:'#8A5125'}}>S.No</th>
-                      <th style={{fontWeight:800,color:'#fff',background:'#8A5125'}}>Code</th>
-                      <th style={{fontWeight:800,color:'#fff',background:'#8A5125'}}>Customer Name</th>
-                      <th style={{fontWeight:800,color:'#fff',background:'#8A5125'}}>Phone</th>
-                      <th style={{fontWeight:800,color:'#fff',background:'#8A5125'}}>WhatsApp</th>
-                      <th style={{fontWeight:800,color:'#fff',background:'#8A5125'}}>District</th>
-                      <th style={{fontWeight:800,color:'#fff',background:'#8A5125'}}>State</th>
+                      <th className="customer-col-sno" style={{fontWeight:800,color:'#fff',background:'#8A5125'}}>S.No</th>
+                      <th className="customer-col-code customer-hide-mobile hide-below-xl" style={{fontWeight:800,color:'#fff',background:'#8A5125'}}>Code</th>
+                      <th className="customer-col-name" style={{fontWeight:800,color:'#fff',background:'#8A5125'}}>
+                        <span className="customer-desktop-label">Customer Name</span>
+                        <span className="customer-mobile-label">Customer</span>
+                      </th>
+                      <th className="customer-col-phone customer-hide-medium-mobile" style={{fontWeight:800,color:'#fff',background:'#8A5125'}}>Phone</th>
+                      <th className="customer-col-whatsapp customer-hide-mobile hide-below-xl" style={{fontWeight:800,color:'#fff',background:'#8A5125'}}>WhatsApp</th>
+                      <th className="customer-col-district customer-hide-mobile hide-below-xl" style={{fontWeight:800,color:'#fff',background:'#8A5125'}}>District</th>
+                      <th className="customer-col-state customer-hide-mobile hide-below-xl" style={{fontWeight:800,color:'#fff',background:'#8A5125'}}>State</th>
+                      <th className="customer-row-actions-header" aria-label="Row actions" />
+                      <th className="customer-col-more customer-show-mobile responsive-more-cell" style={{fontWeight:800,color:'#fff',background:'#8A5125'}}>More</th>
                     </tr>
                 )}
               >
                     {customers.length === 0 ? (
                       <tr className="customer-empty-row">
-                        <td colSpan={isAdmin?8:7} className="customer-empty-cell">
+                        <td colSpan={isAdmin?10:9} className="customer-empty-cell">
                           {deb ? 'No matching records found' : 'No records found'}
                         </td>
                       </tr>
@@ -651,9 +666,12 @@ const CustomerList = () => {
                       const whatsapp = customerWhatsapp(c);
                       const district = customerDistrict(c);
                       const state = customerState(c);
+                      const address = parseAddress(c.Address);
+                      const isExpanded = expandedId === c.id;
                       return (
-                        <tr key={c.id}
-                          className={`table-row-hover${selectedCustomerId === c.id ? ' row-keyboard-selected' : ''}`}
+                        <Fragment key={c.id}>
+                        <tr ref={idx === 0 ? rowRef : undefined}
+                          className={`table-row-hover customer-table-row${selectedCustomerId === c.id ? ' row-keyboard-selected' : ''}`}
                           style={{cursor:'pointer',position:'relative'}}
                           onMouseEnter={(e) => { e.currentTarget.closest('.list-keyboard-zone')?.focus(); setHoveredCustomerId(c.id); setSelectedCustomerId(c.id); setDismissedActionCustomerId(null); }}
                           onMouseLeave={() => setHoveredCustomerId(prev => prev === c.id ? null : prev)}
@@ -668,7 +686,7 @@ const CustomerList = () => {
                             else setViewMore(c);
                           }}>
                           {isAdmin && (
-                            <td className="row-cb-cell" onClick={e=>{e.stopPropagation();toggleSelect(c.id);}}>
+                            <td className="row-cb-cell customer-col-select customer-hide-small-select" onClick={e=>{e.stopPropagation();toggleSelect(c.id);}}>
                               <input type="checkbox" className="row-cb"
                                 checked={selected.has(c.id)}
                                 onClick={e => e.stopPropagation()}
@@ -676,43 +694,87 @@ const CustomerList = () => {
                                 style={{accentColor:'#8A5125',width:14,height:14}}/>
                             </td>
                           )}
-                          <td className="customer-cell-sno" title={`${(loadedPage-1)*PAGE_SIZE+idx+1}`}>
-                            {(loadedPage-1)*PAGE_SIZE+idx+1}
+                          <td className="customer-cell-sno customer-col-sno" title={`${(loadedPage-1)*pageSize+idx+1}`}>
+                            {(loadedPage-1)*pageSize+idx+1}
                           </td>
-                          <td className="customer-cell-code" title={code || '--'}>
+                          <td className="customer-cell-code customer-col-code customer-hide-mobile hide-below-xl" title={code || '--'}>
                             <code>{code || '--'}</code>
                           </td>
-                          <td className="customer-cell-name" title={name || '--'}>
+                          <td className="customer-cell-name customer-col-name" title={name || '--'}>
                             <span>{name || '--'}</span>
                           </td>
-                          <td className="customer-cell-phone" title={phone || '--'}>{phone || <span style={{opacity:.4}}>--</span>}</td>
-                          <td className="customer-cell-whatsapp" title={whatsapp || '--'}>{whatsapp || <span style={{opacity:.4}}>--</span>}</td>
-                          <td className="customer-cell-district" title={district || '--'}>{district || <span style={{opacity:.4}}>--</span>}</td>
-                          <td className="customer-cell-state row-action-anchor" title={state || '--'}>
+                          <td className="customer-cell-phone customer-col-phone customer-hide-medium-mobile" title={phone || '--'}>{phone || <span style={{opacity:.4}}>--</span>}</td>
+                          <td className="customer-cell-whatsapp customer-col-whatsapp customer-hide-mobile hide-below-xl" title={whatsapp || '--'}>{whatsapp || <span style={{opacity:.4}}>--</span>}</td>
+                          <td className="customer-cell-district customer-col-district customer-hide-mobile hide-below-xl" title={district || '--'}>{district || <span style={{opacity:.4}}>--</span>}</td>
+                          <td className="customer-cell-state customer-col-state customer-hide-mobile hide-below-xl" title={state || '--'}>
                             {state || <span style={{opacity:.4}}>--</span>}
-                            <RowActionPopup
-                              visible={selected.size < 2 && hoveredCustomerId === c.id && dismissedActionCustomerId !== c.id}
-                              onDismiss={() => { setDismissedActionCustomerId(hoveredCustomerId ?? selectedCustomerId); setHoveredCustomerId(null); }}
-                              actions={[
-                                { type:'view', title:'View More', onClick:() => setViewMore(c) },
-                                isAdmin && { type:'delete', title:'Delete', variant:'danger', onClick:() => { selectCustomer(c.id); setDelTarget(c.id); setShowDel(true); } },
-                              ]}
-                            />
+                          </td>
+                          <td className="customer-row-actions-cell">
+                            <div className="customer-row-actions">
+                              <button type="button" className="customer-row-action-button"
+                                onClick={e => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  setViewMore(c);
+                                }}
+                                aria-label={`View ${name || 'customer'}`}
+                                title="View">
+                                <Eye size={16}/>
+                              </button>
+                              {isAdmin && (
+                                <button type="button" className="customer-row-action-button delete"
+                                  onClick={e => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    selectCustomer(c.id);
+                                    setDelTarget(c.id);
+                                    setShowDel(true);
+                                  }}
+                                  aria-label={`Delete ${name || 'customer'}`}
+                                  title="Delete">
+                                  <Trash2 size={16}/>
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                          <td className="customer-col-more customer-show-mobile responsive-more-cell">
+                            <button type="button" className="table-more-button customer-more-button"
+                              onClick={e => { e.preventDefault(); e.stopPropagation(); toggleExpanded(c.id); }}
+                              aria-expanded={isExpanded}>
+                              {isExpanded ? 'Less' : 'More'}
+                            </button>
                           </td>
                         </tr>
+                        {isExpanded && (
+                          <tr className="detail-row">
+                            <td colSpan={isAdmin ? 10 : 9} className="detail-row-cell">
+                              <div className="detail-grid">
+                                <div><span>Code</span><strong>{code || '--'}</strong></div>
+                                <div><span>Phone</span><strong>{phone || '--'}</strong></div>
+                                <div><span>WhatsApp</span><strong>{whatsapp || '--'}</strong></div>
+                                <div><span>District</span><strong>{district || '--'}</strong></div>
+                                <div><span>State</span><strong>{state || '--'}</strong></div>
+                                <div><span>GST Number</span><strong>{address.gstNo || '--'}</strong></div>
+                                <div><span>Price Type</span><strong>{c.PriceCodeType || '--'}</strong></div>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                        </Fragment>
                       );
                     })}
               </SplitTable>
               </div>
+              </div>
 
-              <div className="table-pagination-footer">
+              <div ref={bottomRef} className="table-pagination-footer">
                 <div className="product-record-info">
-                  Showing {customers.length ? `${((loadedPage - 1) * PAGE_SIZE) + 1}-${Math.min(((loadedPage - 1) * PAGE_SIZE) + customers.length, total)}` : <>0&ndash;0</>} of {total} records
+                  Showing {customers.length ? `${((loadedPage - 1) * pageSize) + 1}-${Math.min(((loadedPage - 1) * pageSize) + customers.length, total)}` : <>0&ndash;0</>} of {total} records
                 </div>
                 <div className="pagination" style={{marginTop:0}}>
                   <button className="pg-item" disabled={loadedPage===1 || total===0} onClick={() => setPage(Math.max(1,loadedPage-1))}>Previous</button>
                   {total > 0 && buildPages().map((n,i) =>
-                    n==='...' || n==='â€¦'
+                    n==='...' || n==='…'
                       ? <span key={`e${i}`} className="pg-item" style={{border:'none',cursor:'default',color:'var(--text-muted)'}}>...</span>
                       : <button key={n} className={`pg-item${loadedPage===n?' active':''}`} onClick={() => setPage(n)}>{n}</button>
                   )}
@@ -731,7 +793,7 @@ const CustomerList = () => {
         onConfirm={handleDelete}
         onCancel={() => { setShowDel(false); setDelTarget(null); }}
         confirmVariant="danger"
-        confirmText={deleting?'Deletingâ€¦':'Delete'}
+        confirmText={deleting?'Deleting…':'Delete'}
         cancelText="Cancel"
       />
     </Layout>
@@ -739,7 +801,3 @@ const CustomerList = () => {
 };
 
 export default CustomerList;
-
-
-
-

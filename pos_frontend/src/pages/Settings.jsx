@@ -17,7 +17,6 @@ const IcMoon = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" 
 const IcBell = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{width:16,height:16}}><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>;
 const IcLock = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{width:16,height:16}}><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>;
 const IcKey  = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{width:16,height:16}}><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>;
-const CloseIcon = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{width:16,height:16}}><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>;
 
 const DarkToggle = ({ value, onChange }) => (
   <div onClick={() => onChange(!value)} style={{
@@ -260,7 +259,11 @@ const Settings = () => {
               <h2 style={{fontFamily:'var(--font-heading)',fontWeight:800,margin:0}}>Settings</h2>
               <p className="page-header-sub" style={{marginTop:'.35rem'}}>Appearance, notifications and security</p>
             </div>
-            <button className="btn btn-link" onClick={() => navigate(-1)} aria-label="Close"><CloseIcon/></button>
+            <button type="button" className="page-back-button"
+              onClick={() => window.history.state?.idx > 0 ? navigate(-1) : navigate('/dashboard', { replace: true })}
+              aria-label="Back">
+              <span aria-hidden="true">←</span><span>Back</span>
+            </button>
           </div>
 
           <div style={{padding:'1.25rem 1.5rem',display:'grid',gap:'1rem'}}>

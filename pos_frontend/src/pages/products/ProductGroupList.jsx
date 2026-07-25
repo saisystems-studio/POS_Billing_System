@@ -7,13 +7,12 @@ import RowActionPopup from '../../components/RowActionPopup';
 import productGroupService from '../../services/productGroupService';
 import { fetchCachedPage, getCachedPage, makePageKey, prefetchCachedPage } from '../../services/pageCache';
 import { useAuth } from '../../context/AuthContext';
+import useResponsivePageSize from '../../hooks/useResponsivePageSize';
 
 /* ─── Icons ─── */
 const SearchIcon = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{width:15,height:15}}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>;
 const PlusIcon   = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{width:15,height:15}}><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>;
-const BackIcon   = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{width:14,height:14}}><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>;
 
-const PAGE_SIZE = 13;
 const formatDate = (s) => s ? new Date(s).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
 
 const ProductGroupList = () => {
@@ -35,8 +34,12 @@ const ProductGroupList = () => {
   const [hoveredGroupId, setHoveredGroupId] = useState(null);
   const [dismissedActionGroupId, setDismissedActionGroupId] = useState(null);
   const fetchSeqRef = useRef(0);
+  const { pageSize, containerRef, rowRef, bottomRef } = useResponsivePageSize({
+    defaultRowHeight: 34,
+    mobileRowHeight: 150,
+  });
 
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   useEffect(() => {
     if (page > totalPages) setPage(totalPages);
@@ -77,13 +80,18 @@ const ProductGroupList = () => {
     const t = setTimeout(() => { setDeb(search); setPage(1); }, 400);
     return () => clearTimeout(t);
   }, [search]);
+  useEffect(() => {
+    setPage(1);
+    setGroups([]);
+    setSelectedGroupId(null);
+  }, [pageSize]);
 
   /* Fetch */
   const fetchGroups = useCallback(async () => {
     const seq = ++fetchSeqRef.current;
     setLoading(true);
     setError('');
-    const params = { page, page_size: PAGE_SIZE };
+    const params = { page, page_size: pageSize };
     if (deb) params.search = deb;
     const cacheKey = makePageKey('product-groups', params);
     const cached = getCachedPage('product-groups', cacheKey);
@@ -107,7 +115,7 @@ const ProductGroupList = () => {
       setLoadedPage(page);
       const rows = data.results !== undefined ? data.results : (Array.isArray(data) ? data : []);
       const totalCount = data.count ?? rows.length;
-      const maxPage = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+      const maxPage = Math.max(1, Math.ceil(totalCount / pageSize));
       [page - 1, page + 1].filter(n => n >= 1 && n <= maxPage).forEach(n => {
         const nextParams = { ...params, page: n };
         prefetchCachedPage('product-groups', makePageKey('product-groups', nextParams), () => productGroupService.getGroups(nextParams));
@@ -118,7 +126,7 @@ const ProductGroupList = () => {
     } finally {
       if (seq === fetchSeqRef.current) setLoading(false);
     }
-  }, [page, deb]);
+  }, [page, pageSize, deb]);
 
   useEffect(() => { fetchGroups(); }, [fetchGroups]);
 
@@ -154,10 +162,6 @@ const ProductGroupList = () => {
       {/* Page Header */}
       <div className="page-header animate-in">
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-          <button className="btn btn-outline-secondary btn-sm"
-            onClick={() => navigate('/products')}>
-            <BackIcon /> Products
-          </button>
           <div>
             <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 800 }}>Product Groups</h2>
             <p className="page-header-sub">
@@ -206,7 +210,7 @@ const ProductGroupList = () => {
           </div>
 
           <>
-              <div className="list-keyboard-zone" tabIndex={0} onKeyDown={handleListKeyDown}>
+              <div ref={containerRef} className="list-keyboard-zone" tabIndex={0} onKeyDown={handleListKeyDown}>
               <SplitTable
                 className="table table-compact product-group-table"
                 tableProps={{ style: { tableLayout: 'auto' } }}
@@ -230,14 +234,14 @@ const ProductGroupList = () => {
                         </td>
                       </tr>
                     ) : groups.map((g, idx) => (
-                      <tr key={g.id}
+                      <tr key={g.id} ref={idx === 0 ? rowRef : undefined}
                         className={selectedGroupId === g.id ? 'row-keyboard-selected' : ''}
                         style={{ cursor: 'pointer', position:'relative' }}
                         onMouseEnter={(e) => { e.currentTarget.closest('.list-keyboard-zone')?.focus(); setHoveredGroupId(g.id); setSelectedGroupId(g.id); setDismissedActionGroupId(null); }}
                         onMouseLeave={() => setHoveredGroupId(prev => prev === g.id ? null : prev)}
                         onClick={() => { setSelectedGroupId(g.id); setDismissedActionGroupId(null); }}>
                         <td style={{ color: 'var(--text-muted)', fontSize: '.8125rem' }}>
-                          {(loadedPage - 1) * PAGE_SIZE + idx + 1}
+                          {(loadedPage - 1) * pageSize + idx + 1}
                         </td>
                         <td>
                           <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
@@ -262,9 +266,9 @@ const ProductGroupList = () => {
               </SplitTable>
               </div>
 
-              <div className="table-pagination-footer">
+              <div ref={bottomRef} className="table-pagination-footer">
                 <div className="product-record-info">
-                  Showing {groups.length ? ((loadedPage - 1) * PAGE_SIZE) + 1 : 0}-{Math.min(((loadedPage - 1) * PAGE_SIZE) + groups.length, total)} of {total} records
+                  Showing {groups.length ? ((loadedPage - 1) * pageSize) + 1 : 0}-{Math.min(((loadedPage - 1) * pageSize) + groups.length, total)} of {total} records
                 </div>
                 <div className="pagination" style={{ marginTop: 0 }}>
                   <button className="pg-item" disabled={loadedPage === 1 || total === 0}

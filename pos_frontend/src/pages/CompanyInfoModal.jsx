@@ -1,18 +1,5 @@
-/**
- * CompanyInfoModal — blurred-backdrop modal for viewing/editing CompanyInfo_tbl.
- *
- * Field mapping (frontend ↔ backend CompanyConfig):
- *   CompanyName      ↔  CompanyName
- *   PhoneNumber      ↔  PhoneNumber
- *   Email            ↔  Email
- *   Address          ↔  Address
- *   IsGSTRegistered  ↔  IsGSTRegistered
- *   GSTNumber        ↔  GSTNumber
- *   CompanyLogo      ↔  CompanyLogo
- *
- * After save → calls refreshCompanyInfo() from CompanyContext so
- * ProductForm and BillingForm rerender without page reload.
- */
+/** CompanyInfoModal — blurred-backdrop modal for viewing/editing CompanyInfo_tbl.*/
+
 import { useState, useEffect, useCallback, useRef } from 'react';
 import companyService from '../services/companyService';
 import { useAuth } from '../context/AuthContext';

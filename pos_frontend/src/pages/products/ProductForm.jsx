@@ -4,10 +4,12 @@ import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import Layout from '../../components/Layout';
 import LoadingSpinner from '../../components/LoadingSpinner';
 import productService from '../../services/productService';
+import productGroupService from '../../services/productGroupService';
 import { useAuth } from '../../context/AuthContext';
 import { useCompany } from '../../context/CompanyContext';
 import { useToast } from '../../context/ToastContext';
 import api from '../../services/api';
+import useMobileDropdownPlacement from '../../hooks/useMobileDropdownPlacement';
 
 const BRAND = '#8A5125';
 const Req   = () => <span style={{color:'var(--danger)',marginLeft:2}}>*</span>;
@@ -16,6 +18,17 @@ const Spin  = () => <span style={{display:'inline-block',width:14,height:14,bord
 const CI    = { height:34, padding:'.3rem .65rem', fontSize:'.82rem' };
 const errStyle   = { fontSize:'.67rem', color:'var(--danger)', marginTop:'.18rem', fontWeight:500 };
 const labelStyle = { display:'block', fontWeight:700, fontSize:'.72rem', color:'var(--text-label)', marginBottom:'.22rem' };
+
+const firstApiError = (data, fallback) => {
+  if (!data) return fallback;
+  if (typeof data === 'string') return data;
+  if (data.detail) return Array.isArray(data.detail) ? data.detail[0] : String(data.detail);
+  for (const value of Object.values(data)) {
+    if (Array.isArray(value) && value.length) return String(value[0]);
+    if (value) return String(value);
+  }
+  return fallback;
+};
 
 const Toggle = ({ value, onChange, disabled }) => (
   <div style={{display:'flex',alignItems:'center',gap:'.4rem'}}>
@@ -44,6 +57,7 @@ const UQCDropdown = ({ units, value, onChange, error }) => {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
   const inputRef = useRef(null);
+  const { menuClassName, mobileMenuStyle } = useMobileDropdownPlacement(ref, open);
   const allUQC = [...new Set(units.map(u => String(u.UQC || '').trim().toUpperCase()).filter(Boolean))].sort();
   const filtered = q.trim() ? allUQC.filter(u => u.toLowerCase().includes(q.toLowerCase())) : allUQC;
 
@@ -79,7 +93,7 @@ const UQCDropdown = ({ units, value, onChange, error }) => {
         onBlur={()=>setTimeout(()=>{ setOpen(false); if (!value) setQ(''); else setQ(value); }, 120)}/>
       <span style={{position:'absolute',right:'.5rem',top:'50%',transform:'translateY(-50%)',pointerEvents:'none',color:'var(--text-muted)',fontSize:'.6rem'}}>v</span>
       {open && filtered.length > 0 && (
-        <ul style={{position:'absolute',top:'100%',left:0,right:0,zIndex:99999,
+        <ul className={menuClassName} style={{...mobileMenuStyle,position:'absolute',top:'100%',left:0,right:0,zIndex:99999,
           background:'#fff',border:`1.5px solid ${BRAND}`,borderTop:'none',borderRadius:'0 0 6px 6px',
           boxShadow:'0 6px 20px rgba(0,0,0,.14)',maxHeight:160,overflowY:'auto',margin:0,padding:0,listStyle:'none'}}>
           {filtered.map(u => (
@@ -98,17 +112,15 @@ const UQCDropdown = ({ units, value, onChange, error }) => {
 const UnitPopup = ({ units, onClose, onSaved }) => {
   const [unitName, setUnitName] = useState('');
   const [uqc,      setUqc]      = useState('');
-  const [decimal,  setDecimal]  = useState('0');
   const [saving,   setSaving]   = useState(false);
   const [err,      setErr]      = useState('');
 
   const save = async () => {
+    if (saving) return;
     const n = unitName.trim();
     const u = uqc.trim().toUpperCase();
     if (!n) { setErr('Unit name is required.'); return; }
     if (!u) { setErr('UQC Code is required.'); return; }
-    if (decimal === '') { setErr('Decimal is required.'); return; }
-    if (isNaN(parseFloat(decimal))) { setErr('Decimal must be a valid number.'); return; }
     const byCode = units.find(x => String(x.UQC || '').toUpperCase() === u);
     const byName = units.find(x => x.UnitName.toLowerCase() === n.toLowerCase());
     if (byCode) {
@@ -121,11 +133,11 @@ const UnitPopup = ({ units, onClose, onSaved }) => {
     }
     setSaving(true); setErr('');
     try {
-      const created = await productService.createUnit({ UnitName: n, UQC: u, Decimal: parseFloat(decimal || '0') > 0 });
+      const created = await productService.createUnit({ UnitName: n, UQC: u, Decimal: false });
       onSaved(created);
     } catch (e) {
       const d = e.response?.data;
-      setErr(d?.UnitName?.[0] || d?.UQC?.[0] || d?.Decimal?.[0] || d?.detail || 'Failed to create unit.');
+      setErr(firstApiError(d, 'Failed to create unit.'));
     } finally { setSaving(false); }
   };
 
@@ -134,7 +146,7 @@ const UnitPopup = ({ units, onClose, onSaved }) => {
       <div onClick={e=>e.stopPropagation()} style={{background:'var(--card-bg)',borderRadius:12,boxShadow:'0 16px 48px rgba(0,0,0,.28)',padding:'1.25rem 1.375rem',width:'min(400px,96vw)',border:`1.5px solid ${BRAND}`}}>
         <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'1rem'}}>
           <span style={{fontWeight:800,fontSize:'.95rem',color:'var(--text-primary)',fontFamily:'var(--font-heading)'}}>Unit Entry</span>
-          <button onClick={onClose} style={{background:'var(--scale-100)',border:'none',borderRadius:6,width:28,height:28,cursor:'pointer',color:'var(--text-muted)',display:'flex',alignItems:'center',justifyContent:'center'}}>✕</button>
+          <button type="button" onClick={onClose} style={{background:'var(--scale-100)',border:'none',borderRadius:6,width:28,height:28,cursor:'pointer',color:'var(--text-muted)',display:'flex',alignItems:'center',justifyContent:'center'}}>✕</button>
         </div>
         <div style={{marginBottom:'.65rem'}}>
           <label style={labelStyle}>UQC Code <span style={{color:'var(--danger)'}}>*</span></label>
@@ -151,15 +163,9 @@ const UnitPopup = ({ units, onClose, onSaved }) => {
             onKeyDown={e=>{if(e.key==='Enter')save();if(e.key==='Escape')onClose();}}
             style={{...CI,width:'100%',border:`1.5px solid ${err?'var(--danger)':BRAND}`,borderRadius:6}}/>
         </div>
-        <div style={{marginBottom:'.875rem'}}>
-          <label style={labelStyle}>Decimal <span style={{color:'var(--danger)'}}>*</span></label>
-          <input type="text" inputMode="decimal" placeholder="0" value={decimal}
-            onChange={e=>{setDecimal(e.target.value.replace(/[^0-9.]/g,'').replace(/(\..*)\./g,'$1'));setErr('');}}
-            onKeyDown={e=>{if(e.key==='Enter')save();if(e.key==='Escape')onClose();}}
-            style={{...CI,width:'100%',border:'1.5px solid var(--border-input)',borderRadius:6}}/>
-        </div>        <div style={{display:'flex',gap:'.625rem',justifyContent:'flex-end'}}>
-          <button onClick={onClose} style={{padding:'.45rem 1rem',borderRadius:7,border:'1.5px solid var(--border-input)',background:'transparent',cursor:'pointer',fontSize:'.82rem',fontWeight:600}}>Cancel</button>
-          <button onClick={save} disabled={saving}
+        <div style={{display:'flex',gap:'.625rem',justifyContent:'flex-end',marginTop:'.875rem'}}>
+          <button type="button" onClick={onClose} style={{padding:'.45rem 1rem',borderRadius:7,border:'1.5px solid var(--border-input)',background:'transparent',cursor:'pointer',fontSize:'.82rem',fontWeight:600}}>Cancel</button>
+          <button type="button" onClick={save} disabled={saving}
             style={{padding:'.45rem 1.125rem',borderRadius:7,border:'none',background:BRAND,color:'#fff',fontWeight:700,cursor:saving?'not-allowed':'pointer',fontSize:'.82rem',display:'flex',alignItems:'center',gap:'.35rem',opacity:saving?.65:1}}>
             {saving?<Spin/>:'✓'} Save
           </button>
@@ -170,7 +176,7 @@ const UnitPopup = ({ units, onClose, onSaved }) => {
 };
 
 /* ── Group popup modal (centered, with HSN + GST) ── */
-const GroupPopup = ({ onClose, onSaved }) => {
+const GroupPopup = ({ groups, onClose, onSaved }) => {
   const [groupName, setGroupName] = useState('');
   const [hsn,       setHsn]       = useState('');
   const [gst,       setGst]       = useState('');
@@ -180,8 +186,13 @@ const GroupPopup = ({ onClose, onSaved }) => {
   useEffect(() => { setTimeout(() => inputRef.current?.focus(), 80); }, []);
 
   const save = async () => {
+    if (saving) return;
     const n = groupName.trim();
     if (!n) { setErr('Group name is required.'); return; }
+    if (groups.some(group => group.GroupName.trim().toLowerCase() === n.toLowerCase())) {
+      setErr('This product group already exists.');
+      return;
+    }
     if (!hsn.trim()) { setErr('HSN Code is required.'); return; }
     if (!String(gst).trim()) { setErr('GST % is required.'); return; }
     if (!/^\d+$/.test(String(gst).trim()) || Number(gst) < 0 || Number(gst) > 100) {
@@ -190,15 +201,15 @@ const GroupPopup = ({ onClose, onSaved }) => {
     }
     setSaving(true); setErr('');
     try {
-      const res = await api.post('/product-groups/', {
+      const created = await productGroupService.createGroup({
         GroupName: n,
         HSNCode: hsn.trim(),
         GSTPercent: Number(gst),
       });
-      onSaved(res.data);
+      onSaved(created);
     } catch (e) {
       const d = e.response?.data;
-      setErr(d?.GroupName?.[0] || d?.detail || 'Failed to save group.');
+      setErr(firstApiError(d, 'Failed to save group.'));
     } finally { setSaving(false); }
   };
 
@@ -207,7 +218,7 @@ const GroupPopup = ({ onClose, onSaved }) => {
       <div onClick={e=>e.stopPropagation()} style={{background:'var(--card-bg)',borderRadius:12,boxShadow:'0 16px 48px rgba(0,0,0,.28)',padding:'1.25rem 1.375rem',width:'min(420px,96vw)',border:`1.5px solid ${BRAND}`}}>
         <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'1rem'}}>
           <span style={{fontWeight:800,fontSize:'.95rem',color:'var(--text-primary)',fontFamily:'var(--font-heading)'}}>Add Product Group</span>
-          <button onClick={onClose} style={{background:'var(--scale-100)',border:'none',borderRadius:6,width:28,height:28,cursor:'pointer',color:'var(--text-muted)',display:'flex',alignItems:'center',justifyContent:'center'}}>✕</button>
+          <button type="button" onClick={onClose} style={{background:'var(--scale-100)',border:'none',borderRadius:6,width:28,height:28,cursor:'pointer',color:'var(--text-muted)',display:'flex',alignItems:'center',justifyContent:'center'}}>✕</button>
         </div>
         <div style={{marginBottom:'.65rem'}}>
           <label style={labelStyle}>Group Name <span style={{color:'var(--danger)'}}>*</span></label>
@@ -230,8 +241,8 @@ const GroupPopup = ({ onClose, onSaved }) => {
           </div>
         </div>
         <div style={{display:'flex',gap:'.625rem',justifyContent:'flex-end'}}>
-          <button onClick={onClose} style={{padding:'.45rem 1rem',borderRadius:7,border:'1.5px solid var(--border-input)',background:'transparent',cursor:'pointer',fontSize:'.82rem',fontWeight:600}}>Cancel</button>
-          <button onClick={save} disabled={saving}
+          <button type="button" onClick={onClose} style={{padding:'.45rem 1rem',borderRadius:7,border:'1.5px solid var(--border-input)',background:'transparent',cursor:'pointer',fontSize:'.82rem',fontWeight:600}}>Cancel</button>
+          <button type="button" onClick={save} disabled={saving}
             style={{padding:'.45rem 1.125rem',borderRadius:7,border:'none',background:BRAND,color:'#fff',fontWeight:700,cursor:saving?'not-allowed':'pointer',fontSize:'.82rem',display:'flex',alignItems:'center',gap:'.35rem',opacity:saving?.65:1}}>
             {saving?<Spin/>:'✓'} Save
           </button>
@@ -247,7 +258,9 @@ const GroupDropdown = ({ groups, value, onChange, onGroupAdded, onGroupSelected,
   const [open,     setOpen]     = useState(false);
   const [showPopup,setShowPopup]= useState(false);
   const ref = useRef(null);
+  const anchorRef = useRef(null);
   const inputRef = useRef(null);
+  const { menuClassName, mobileMenuStyle } = useMobileDropdownPlacement(anchorRef, open);
 
   const sel = groups.find(g => g.id === value);
   useEffect(() => {
@@ -286,8 +299,8 @@ const GroupDropdown = ({ groups, value, onChange, onGroupAdded, onGroupSelected,
 
   return (
     <div ref={ref}>
-      <div style={{display:'flex',alignItems:'center',gap:'.4rem'}}>
-        <div style={{position:'relative',flex:1}}>
+      <div className="product-lookup-with-add" style={{display:'flex',alignItems:'center',gap:'.4rem'}}>
+        <div ref={anchorRef} className="app-dropdown" style={{position:'relative',flex:1}}>
           <input ref={inputRef} type="text" autoComplete="off"
             className={`form-control${error?' is-invalid':''}`}
             placeholder="Search or select group…"
@@ -303,7 +316,7 @@ const GroupDropdown = ({ groups, value, onChange, onGroupAdded, onGroupSelected,
             },160)}/>
           <span style={{position:'absolute',right:'.5rem',top:'50%',transform:'translateY(-50%)',pointerEvents:'none',color:'var(--text-muted)',fontSize:'.6rem'}}>▾</span>
           {open && filtered.length > 0 && (
-            <ul style={{position:'absolute',top:'100%',left:0,right:0,zIndex:9999,
+            <ul className={menuClassName} style={{...mobileMenuStyle,position:'absolute',top:'100%',left:0,right:0,zIndex:9999,
               background:'var(--card-bg)',border:'1.5px solid var(--primary)',borderTop:'none',
               borderRadius:'0 0 6px 6px',boxShadow:'0 6px 20px rgba(0,0,0,.12)',
               maxHeight:200,overflowY:'auto',margin:0,padding:0,listStyle:'none'}}>
@@ -323,7 +336,7 @@ const GroupDropdown = ({ groups, value, onChange, onGroupAdded, onGroupSelected,
           )}
         </div>
         {!disabled && (
-          <button type="button" title="Add new group" onClick={()=>setShowPopup(true)}
+          <button type="button" className="product-lookup-add-button" title="Add new group" onClick={()=>setShowPopup(true)}
             style={{width:28,height:28,borderRadius:6,background:'var(--primary-light)',
               border:`1px solid ${BRAND}`,color:BRAND,fontWeight:800,fontSize:'1rem',
               cursor:'pointer',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center'}}>+</button>
@@ -331,6 +344,7 @@ const GroupDropdown = ({ groups, value, onChange, onGroupAdded, onGroupSelected,
       </div>
       {showPopup && (
         <GroupPopup
+          groups={groups}
           onClose={()=>setShowPopup(false)}
           onSaved={g=>{
             onGroupAdded(g);
@@ -349,7 +363,9 @@ const UnitDropdown = ({ units, value, onChange, onUnitAdded, onUnitsChanged, dis
   const [open,     setOpen]     = useState(false);
   const [showPopup,setShowPopup]= useState(false);
   const ref = useRef(null);
+  const anchorRef = useRef(null);
   const inputRef = useRef(null);
+  const { menuClassName, mobileMenuStyle } = useMobileDropdownPlacement(anchorRef, open);
 
   const unitLabel = (u) => u ? `${u.UQC || '--'} - ${u.UnitName}` : '';
   useEffect(() => {
@@ -390,8 +406,8 @@ const UnitDropdown = ({ units, value, onChange, onUnitAdded, onUnitsChanged, dis
 
   return (
     <div ref={ref}>
-      <div style={{display:'flex',alignItems:'center',gap:'.4rem'}}>
-        <div style={{position:'relative',flex:1}}>
+      <div className="product-lookup-with-add" style={{display:'flex',alignItems:'center',gap:'.4rem'}}>
+        <div ref={anchorRef} className="app-dropdown" style={{position:'relative',flex:1}}>
           <input ref={inputRef} type="text" autoComplete="off"
             className={`form-control${error?' is-invalid':''}`}
             placeholder="pcs  kg  litre  dozen…"
@@ -410,7 +426,7 @@ const UnitDropdown = ({ units, value, onChange, onUnitAdded, onUnitsChanged, dis
             },160)}/>
           <span style={{position:'absolute',right:'.5rem',top:'50%',transform:'translateY(-50%)',pointerEvents:'none',color:'var(--text-muted)',fontSize:'.6rem'}}>▾</span>
           {open && filtered.length > 0 && (
-            <ul style={{position:'absolute',top:'100%',left:0,right:0,zIndex:9999,
+            <ul className={menuClassName} style={{...mobileMenuStyle,position:'absolute',top:'100%',left:0,right:0,zIndex:9999,
               background:'var(--card-bg)',border:'1.5px solid var(--primary)',borderTop:'none',
               borderRadius:'0 0 6px 6px',boxShadow:'0 6px 20px rgba(0,0,0,.12)',
               maxHeight:200,overflowY:'auto',margin:0,padding:0,listStyle:'none'}}>
@@ -428,7 +444,7 @@ const UnitDropdown = ({ units, value, onChange, onUnitAdded, onUnitsChanged, dis
           )}
         </div>
         {!disabled && (
-          <button type="button" title="Add new unit" onClick={()=>setShowPopup(true)}
+          <button type="button" className="product-lookup-add-button" title="Add new unit" onClick={()=>setShowPopup(true)}
             style={{width:28,height:28,borderRadius:6,background:'var(--primary-light)',
               border:`1px solid ${BRAND}`,color:BRAND,fontWeight:800,fontSize:'1rem',
               cursor:'pointer',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center'}}>+</button>
@@ -438,19 +454,10 @@ const UnitDropdown = ({ units, value, onChange, onUnitAdded, onUnitsChanged, dis
         <UnitPopup
           units={units}
           onClose={()=>setShowPopup(false)}
-          onSaved={async u=>{
-            let picked = u;
-            try {
-              const latest = await productService.getUnits();
-              const sorted = (Array.isArray(latest) ? latest : []).sort((a,b)=>a.UnitName.localeCompare(b.UnitName));
-              picked = sorted.find(x => x.id === u.id) || u;
-              onUnitAdded(picked);
-              if (typeof onUnitsChanged === 'function') onUnitsChanged(sorted);
-            } catch {
-              onUnitAdded(u);
-            }
-            onChange(picked);
-            setQ(unitLabel(picked));
+          onSaved={u=>{
+            onUnitAdded(u);
+            onChange(u);
+            setQ(unitLabel(u));
             setShowPopup(false);
           }}/>
       )}
@@ -473,9 +480,12 @@ const ProductForm = () => {
   const toast       = useToast();
   const isEdit      = id !== undefined && id !== 'new';
   const quickSalesReturn = location.state?.returnToSales && location.state?.salesDraft;
-  const returnToSalesForm = useCallback(() => {
+  const returnToSalesForm = useCallback((productCreated = false) => {
     navigate(location.state?.returnPath || '/billing/new', {
-      state: { restoreSalesDraft: location.state?.salesDraft },
+      state: {
+        restoreSalesDraft: location.state?.salesDraft,
+        productCreated,
+      },
     });
   }, [location.state, navigate]);
 
@@ -593,7 +603,7 @@ const ProductForm = () => {
         await productService.createProductWithPrices(payload);
         toast.success('Saved', 'Product saved successfully.');
         if (quickSalesReturn) {
-          setTimeout(returnToSalesForm, 600);
+          setTimeout(() => returnToSalesForm(true), 600);
           return;
         }
         setForm({ ...EMPTY_FORM, GroupId: form.GroupId });
@@ -662,7 +672,14 @@ const ProductForm = () => {
                 groups={groups}
                 value={form.GroupId ? parseInt(form.GroupId, 10) : null}
                 onChange={v => setForm(p => ({...p, GroupId: v || ''}))}
-                onGroupAdded={g => setGroups(prev => [...prev, g].sort((a,b) => a.GroupName.localeCompare(b.GroupName)))}
+                onGroupAdded={g => {
+                  setGroups(prev => (
+                    prev.some(item => item.id === g.id)
+                      ? prev
+                      : [...prev, g].sort((a,b) => a.GroupName.localeCompare(b.GroupName))
+                  ));
+                  toast.success('Added', 'Product Group added successfully.');
+                }}
                 onGroupSelected={handleGroupSelected}
                 disabled={isReadOnly}
                 error={errors.GroupId}/>
@@ -687,7 +704,14 @@ const ProductForm = () => {
                     setForm(p=>({...p,UnitId:u?.id || '',Units:u?.UnitName || ''}));
                     if(errors.Units)setErrors(p=>({...p,Units:''}));
                   }}
-                  onUnitAdded={u => setUnits(prev => [...prev, u].sort((a,b)=>a.UnitName.localeCompare(b.UnitName)))}
+                  onUnitAdded={u => {
+                    setUnits(prev => (
+                      prev.some(item => item.id === u.id)
+                        ? prev
+                        : [...prev, u].sort((a,b)=>a.UnitName.localeCompare(b.UnitName))
+                    ));
+                    toast.success('Added', 'Unit added successfully.');
+                  }}
                   onUnitsChanged={list => setUnits(list)}
                   disabled={isReadOnly}
                   error={errors.Units}/>

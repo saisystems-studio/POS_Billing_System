@@ -182,7 +182,7 @@ const SearchDropdown = ({
         </span>
       </div>
       {open && !disabled && (
-        <div style={{
+        <div className="shared-dropdown-menu" style={{
           position: 'absolute', zIndex: 40, top: 'calc(100% + 4px)', left: 0, right: 0,
           background: 'var(--card-bg)', border: '1.5px solid var(--primary)',
           borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-lg)',
@@ -201,6 +201,7 @@ const SearchDropdown = ({
             const focused = hi === idx;
             return (
               <button
+                className="shared-dropdown-option"
                 key={opt.id}
                 ref={el => { optionRefs.current[idx] = el; }}
                 type="button"

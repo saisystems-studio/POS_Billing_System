@@ -7,13 +7,14 @@ import SplitTable from '../../components/SplitTable';
 import RowActionPopup from '../../components/RowActionPopup';
 import billingService from '../../services/billingService';
 import { clearPageCache, fetchCachedPage, getCachedPage, makePageKey, prefetchCachedPage } from '../../services/pageCache';
+import useResponsivePageSize from '../../hooks/useResponsivePageSize';
 import { useToast } from '../../context/ToastContext';
 import { useCompany } from '../../context/CompanyContext';
 import { useAuth } from '../../context/AuthContext';
-import { FileDown, FileSpreadsheet, FileText } from 'lucide-react';
+import { FileDown, FileSpreadsheet, FileText, Pencil, Award } from 'lucide-react';
 
-/* â”€â”€ Icons â”€â”€ */
-const SearchIcon   = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{width:15,height:15}}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>;
+/* ── Icons ── */
+import SharedSearchField from '../../components/SharedSearchField';
 const ViewIcon     = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{width:13,height:13}}><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>;
 const BillIcon     = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{width:13,height:13}}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>;
 const PrintIcon    = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{width:14,height:14}}><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>;
@@ -21,19 +22,18 @@ const PrintIconLg  = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentC
 const DownloadIcon = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{width:15,height:15}}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>;
 const CloseIcon    = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{width:14,height:14}}><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>;
 
-/* â”€â”€ Helpers â”€â”€ */
-const PAGE_SIZE = 13;
-const fmt   = s => s ? new Date(s).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}) : 'â€”';
-const fmtDt = s => s ? new Date(s).toLocaleString('en-IN',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}) : 'â€”';
+/* ── Helpers ── */
+const fmt   = s => s ? new Date(s).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}) : '—';
+const fmtDt = s => s ? new Date(s).toLocaleString('en-IN',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}) : '—';
 const inrFormatter = new Intl.NumberFormat('en-IN', {
   style: 'currency',
   currency: 'INR',
   minimumFractionDigits: 2,
 });
 const fmtAmt = v => {
-  if (v == null || v === '') return 'â€”';
+  if (v == null || v === '') return '—';
   const amount = Number(v);
-  if (!Number.isFinite(amount)) return 'â€”';
+  if (!Number.isFinite(amount)) return '—';
   try {
     return inrFormatter.format(amount);
   } catch {
@@ -41,7 +41,7 @@ const fmtAmt = v => {
   }
 };
 
-/* â”€â”€ Invoice HTML builder â€” multi-line, with GST â”€â”€ */
+/* ── Invoice HTML builder — multi-line, with GST ── */
 function buildInvoiceHTML(bill, companyName = 'POS Billing System', format = 'a4') {
   const lines = bill.line_items || [];
   const num = v => Number.parseFloat(v || 0) || 0;
@@ -89,12 +89,29 @@ function buildInvoiceHTML(bill, companyName = 'POS Billing System', format = 'a4
       <td class="r">${plain(amount)}</td>
     </tr>`;
   }).join('') : `<tr><td colspan="8" class="empty">No line items found</td></tr>`;
+  const receiptItemsHtml = lines.length ? lines.map(l => {
+    const rate = num(l.ChangeableRate ?? l.Price);
+    const qty = num(l.Qty);
+    const base = qty * rate;
+    const discount = num(l.DiscountAmount) || (base * num(l.DiscountPercent) / 100);
+    const tax = num(l.GSTAmount) || num(l.CGSTAmount) + num(l.SGSTAmount) + num(l.IGSTAmount);
+    const amount = num(l.Amount) || (base - discount + tax);
+    return `<div class="receipt-item">
+      <div class="receipt-item-name">${l.ProductName || ''}</div>
+      <div class="receipt-item-meta"><span>${qtyText(qty)} &times; ${money(rate)}</span><strong>${money(amount)}</strong></div>
+    </div>`;
+  }).join('') : `<div class="empty">No line items found</div>`;
+  const itemsHtml = format === 'a4'
+    ? `<table class="invoice-items-table"><thead><tr><th style="width:7%">S.No</th><th style="width:24%;text-align:left">Product</th><th style="width:10%">Qty</th><th style="width:14%">Price Code</th><th style="width:12%" class="r">Rate (&#8377;)</th><th style="width:13%" class="r">Discount (&#8377;)</th><th style="width:10%" class="r">Tax (&#8377;)</th><th style="width:12%" class="r">Amount (&#8377;)</th></tr></thead><tbody>${rowsHtml}</tbody></table>`
+    : `<div class="receipt-items">${receiptItemsHtml}</div>`;
+  const pageSize = format === 'pos80' ? '80mm auto' : format === 'thermal58' ? '58mm auto' : 'A4';
+  const pageMargin = format === 'a4' ? '12mm' : '0';
 
   return `<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"/><title>Invoice ${bill.BillNo || ('#' + bill.id)}</title>
 <style>
-  @page{size:A4;margin:12mm}
+  @page{size:${pageSize};margin:${pageMargin}}
   *{box-sizing:border-box;margin:0;padding:0}
   body{font-family:Inter,Arial,Helvetica,sans-serif;color:#2b1a10;background:#fff;font-size:13px;line-height:1.35}
   .invoice{min-height:100vh;background:#fff;padding:26px 28px 18px}
@@ -112,6 +129,12 @@ function buildInvoiceHTML(bill, companyName = 'POS Billing System', format = 'a4
   thead th{background:#f4ece4;color:#4b2612;font-weight:900;padding:11px 12px;border-bottom:1px solid #dfd0c2;text-align:center;white-space:nowrap}
   tbody td{padding:10px 12px;border-bottom:1px solid #eadfd5;text-align:center;color:#211711;vertical-align:middle}tbody tr:last-child td{border-bottom:0}
   .product{text-align:left}.r{text-align:right}.c{text-align:center}.muted{color:#72645c;font-weight:600}.empty{text-align:center;color:#72645c;padding:18px}
+  .receipt-items{border-top:1px solid #dfd0c2;border-bottom:1px solid #dfd0c2}
+  .receipt-item{padding:6px 0;border-bottom:1px dashed rgba(138,81,37,.35)}
+  .receipt-item:last-child{border-bottom:0}
+  .receipt-item-name{font-weight:800;overflow-wrap:anywhere}
+  .receipt-item-meta{display:flex;justify-content:space-between;gap:8px;margin-top:3px}
+  .receipt-item-meta strong{text-align:right;white-space:nowrap}
   .invoice-lower{display:grid;grid-template-columns:1fr 420px;gap:16px;margin-top:6px;align-items:start}.summary{grid-column:2;border:1px solid #dfd0c2;border-radius:8px;padding:12px 18px;background:#fff}
   .sum-row{display:flex;justify-content:space-between;gap:22px;padding:4px 0;color:#34251d}.sum-row.negative{color:#d00000}.sum-row.grand{border-top:1px dashed #d7c6b8;margin-top:6px;padding-top:10px;color:#8A5125;font-size:22px;font-weight:900}
   .points{margin:6px 8px 16px;border:1px solid #cfae91;border-radius:7px;padding:10px 18px;display:flex;align-items:center;gap:14px;color:#6a5142;background:#fff}.star{width:30px;height:30px;border-radius:50%;background:#d68b21;color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:18px}.points strong{font-size:22px;color:#8A5125}.points .note{font-size:12px;color:#6f625a;margin-left:6px}
@@ -119,7 +142,7 @@ function buildInvoiceHTML(bill, companyName = 'POS Billing System', format = 'a4
   body.pos80 .invoice{max-width:360px;margin:0 auto;padding:14px}body.pos80 .brand{gap:8px}.pos80 .brand h1{font-size:20px}.pos80 .brand:before,.pos80 .brand:after,.pos80 .support{display:none}.pos80 .meta-card,.pos80 .invoice-lower{display:block}.pos80 .meta-card{padding:10px}.pos80 .meta-card .side:first-child{border-right:0;padding-right:0}.pos80 .meta-card .side:last-child{padding-left:0}.pos80 .info-row{grid-template-columns:22px 1fr;gap:6px}.pos80 .info-value{grid-column:2}.pos80 .summary{margin-top:10px}.pos80 table{font-size:11px}.pos80 thead th,.pos80 tbody td{padding:6px 4px}.pos80 .points{margin:8px 0}.pos80 .invoice-lower{margin-top:8px}
   body.thermal58 .invoice{max-width:260px;margin:0 auto;padding:10px}.thermal58 .brand{margin-bottom:10px}.thermal58 .brand h1{font-size:17px}.thermal58 .logo,.thermal58 .brand:before,.thermal58 .brand:after,.thermal58 .support{display:none}.thermal58 .meta-card,.thermal58 .invoice-lower{display:block}.thermal58 .meta-card{padding:8px}.thermal58 .meta-card .side:first-child{border-right:0;padding-right:0}.thermal58 .meta-card .side:last-child{padding-left:0}.thermal58 .info-row{grid-template-columns:1fr;gap:2px;padding:3px 0}.thermal58 table{font-size:10px}.thermal58 thead th,.thermal58 tbody td{padding:5px 3px}.thermal58 .summary{margin-top:8px;padding:8px}.thermal58 .sum-row.grand{font-size:16px}.thermal58 .points{padding:8px;margin:8px 0}.thermal58 .points strong{font-size:15px}
   @media(max-width:720px){.invoice{padding:16px}.brand h1{font-size:24px}.meta-card{grid-template-columns:1fr;padding:14px}.meta-card .side:first-child{border-right:0;border-bottom:1px solid #dfd0c2;padding:0 0 10px}.meta-card .side:last-child{padding:0}.invoice-lower{grid-template-columns:1fr}.summary{grid-column:auto}.info-row{grid-template-columns:24px 1fr}.info-value{grid-column:2}.support{flex-wrap:wrap}}
-  @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}.invoice{padding:0}.support{position:fixed;bottom:0;left:0;right:0}}
+  @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}.invoice{padding:0}.support{position:fixed;bottom:0;left:0;right:0}body.pos80{width:80mm}body.pos80 .invoice{width:80mm;padding:3mm}body.thermal58{width:58mm}body.thermal58 .invoice{width:58mm;padding:2mm}}
 </style></head>
 <body class="${format}">
   <div class="invoice">
@@ -138,7 +161,7 @@ function buildInvoiceHTML(bill, companyName = 'POS Billing System', format = 'a4
         <div class="info-row"><span class="info-icon">&#9743;</span><span class="info-label">Phone / Code</span><span class="info-value">${bill.PhoneNumber || bill.CustomerPhone || '-'}</span></div>
       </div>
     </section>
-    <table><thead><tr><th style="width:7%">S.No</th><th style="width:24%;text-align:left">Product</th><th style="width:10%">Qty</th><th style="width:14%">Price Code</th><th style="width:12%" class="r">Rate (&#8377;)</th><th style="width:13%" class="r">Discount (&#8377;)</th><th style="width:10%" class="r">Tax (&#8377;)</th><th style="width:12%" class="r">Amount (&#8377;)</th></tr></thead><tbody>${rowsHtml}</tbody></table>
+    ${itemsHtml}
     <div class="invoice-lower"><div></div><div class="summary">
       <div class="sum-row"><span>Subtotal</span><span>${money(subTotal)}</span></div>
       <div class="sum-row negative"><span>Discount</span><span>-${money(discountTotal)}</span></div>
@@ -197,45 +220,54 @@ const InvoiceModal = ({ bill, onClose, onPrinted, companyName }) => {
   };
 
   return createPortal(
-    <div onClick={onClose} style={{position:'fixed',inset:0,zIndex:8000,background:'rgba(37,33,30,.62)',backdropFilter:'blur(3px)',display:'flex',alignItems:'center',justifyContent:'center',padding:'1.2rem',animation:'fadeIn .15s ease-out'}}>
-      <div onClick={e=>e.stopPropagation()} style={{background:'#fff',borderRadius:18,boxShadow:'0 28px 70px rgba(22,18,15,.38)',width:'min(1180px,96vw)',height:'92vh',display:'flex',flexDirection:'column',overflow:'hidden',border:'1px solid rgba(138,81,37,.18)',animation:'fadeIn .18s ease-out'}}>
-        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:'1rem',padding:'1.45rem 1.55rem',borderBottom:'1px solid #eadfd5',background:'#fff',flexShrink:0}}>
-          <div style={{display:'flex',alignItems:'center',gap:'.85rem',minWidth:0}}>
+    <div className="invoice-preview-overlay" onClick={onClose} style={{position:'fixed',inset:0,zIndex:8000,background:'rgba(37,33,30,.62)',backdropFilter:'blur(3px)',display:'flex',alignItems:'center',justifyContent:'center',padding:'1.2rem',animation:'fadeIn .15s ease-out'}}>
+      <div className="invoice-preview-page" onClick={e=>e.stopPropagation()} style={{background:'#fff',borderRadius:18,boxShadow:'0 28px 70px rgba(22,18,15,.38)',width:'min(1180px,96vw)',height:'92vh',display:'flex',flexDirection:'column',overflow:'hidden',border:'1px solid rgba(138,81,37,.18)',animation:'fadeIn .18s ease-out'}}>
+        <div className="invoice-preview-header" style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:'1rem',padding:'1.45rem 1.55rem',borderBottom:'1px solid #eadfd5',background:'#fff',flexShrink:0}}>
+          <button type="button" className="invoice-preview-mobile-back page-back-button" onClick={onClose}>
+            <span aria-hidden="true">←</span> Back
+          </button>
+          <div className="invoice-preview-title" style={{display:'flex',alignItems:'center',gap:'.85rem',minWidth:0}}>
             <span style={{width:36,height:36,border:'1px solid #eadfd5',borderRadius:8,display:'inline-flex',alignItems:'center',justifyContent:'center',color:'#8A5125',flex:'0 0 auto'}}><BillIcon/></span>
             <span style={{fontWeight:900,fontSize:'1.25rem',fontFamily:'var(--font-heading)',color:'#3f2413',whiteSpace:'nowrap'}}>{bill.BillNo || `Sale #${bill.id}`}</span>
             <span style={{fontSize:'.9rem',color:'#6f6258',fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>&middot; {fmtDt(bill.CreatedOn||bill.BillDate)} &middot; Customer: {bill.CustomerName || '-'}</span>
           </div>
-          <div style={{display:'flex',alignItems:'center',gap:'.75rem',flex:'0 0 auto'}}>
-            <div role="tablist" aria-label="Invoice paper size" style={{display:'inline-flex',border:'1px solid #dfd0c2',borderRadius:8,overflow:'hidden',background:'#fff'}}>
+          <div className="invoice-preview-controls" style={{display:'flex',alignItems:'center',gap:'.75rem',flex:'0 0 auto'}}>
+            <div className="invoice-format-group">
+            <span className="invoice-format-label">Print Format</span>
+            <div className="invoice-format-tabs" role="tablist" aria-label="Invoice print format">
               {formatOptions.map(([value, label]) => (
                 <button key={value} type="button" role="tab" aria-selected={format === value} onClick={() => setFormat(value)}
-                  style={{minWidth:value === 'a4' ? 74 : 112,height:38,padding:'0 .9rem',border:'none',borderRight:value === 'thermal58' ? 'none' : '1px solid #dfd0c2',background:format === value ? '#8A5125' : '#fff',color:format === value ? '#fff' : '#3f2c21',fontWeight:800,cursor:'pointer',fontSize:'.9rem'}}>
+                  className={format === value ? 'active' : ''}>
                   {label}
                 </button>
               ))}
             </div>
-            <button onClick={handlePrint} disabled={!ready} style={{...toolbarButton,background:ready?'#8A5125':'#ece3da',borderColor:ready?'#8A5125':'#e2d6ca',color:ready?'#fff':'#95877d',cursor:ready?'pointer':'not-allowed',opacity:ready?1:.75}}>
+            </div>
+            <div className="invoice-preview-actions">
+            <button className="invoice-print-button" onClick={handlePrint} disabled={!ready} style={{...toolbarButton,background:ready?'#8A5125':'#ece3da',borderColor:ready?'#8A5125':'#e2d6ca',color:ready?'#fff':'#95877d',cursor:ready?'pointer':'not-allowed',opacity:ready?1:.75}}>
               <PrintIconLg/> Print
             </button>
-            <button onClick={onClose} aria-label="Close invoice preview" style={{background:'#fff',border:'1px solid #eadfd5',borderRadius:8,width:38,height:38,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'#6f6258'}}>
-              <CloseIcon/>
+            <button className="invoice-close-button" onClick={onClose} aria-label="Close invoice preview" style={{background:'#fff',border:'1px solid #eadfd5',borderRadius:8,width:38,height:38,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'#6f6258'}}>
+              <CloseIcon/><span>Close</span>
             </button>
+            </div>
           </div>
         </div>
-        <div style={{flex:1,overflow:'hidden',position:'relative',minHeight:0,background:'#f3efeb'}}>
+        <div className={`invoice-preview-screen format-${format}`} style={{flex:1,overflow:'hidden',position:'relative',minHeight:0,background:'#f3efeb'}}>
+          <span className="invoice-preview-label">Invoice Preview</span>
           {!ready && (
             <div style={{position:'absolute',inset:0,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:'.75rem',color:'var(--text-muted)',fontSize:'.82rem',background:'#fff',zIndex:2}}>
               <div style={{width:28,height:28,border:'3px solid var(--scale-200)',borderTopColor:'var(--primary)',borderRadius:'50%',animation:'spin .6s linear infinite'}}/>
               Loading invoice...
             </div>
           )}
-          <iframe ref={iframeRef} style={{width:'100%',height:'100%',border:'none',opacity:ready?1:0,transition:'opacity .2s',display:'block'}} title={`Sale Invoice ${bill.BillNo||bill.id}`}/>
+          <iframe className="invoice-print-sheet" ref={iframeRef} style={{width:'100%',height:'100%',border:'none',opacity:ready?1:0,transition:'opacity .2s',display:'block'}} title={`Sale Invoice ${bill.BillNo||bill.id}`}/>
         </div>
       </div>
     </div>, document.body
   );
 };
-/* â”€â”€ View More Modal â€” multi-line bill detail â”€â”€ */
+/* ── View More Modal — multi-line bill detail ── */
 const ViewMoreModal = ({ bill, onClose, onOpenInvoice }) => {
   if (!bill) return null;
   const lines = bill.line_items || [];
@@ -244,7 +276,7 @@ const ViewMoreModal = ({ bill, onClose, onOpenInvoice }) => {
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-box" style={{maxWidth:640,width:'95vw'}} onClick={e=>e.stopPropagation()}>
         <div className="modal-header">
-          <span className="modal-title">{bill.BillNo||`Sale #${bill.id}`} â€” Details</span>
+          <span className="modal-title">{bill.BillNo||`Sale #${bill.id}`} — Details</span>
           <button className="modal-close" onClick={onClose}><CloseIcon/></button>
         </div>
         <div className="modal-body" style={{paddingBottom:'.5rem'}}>
@@ -254,9 +286,9 @@ const ViewMoreModal = ({ bill, onClose, onOpenInvoice }) => {
               ['Sale No.',         bill.BillNo||`#${bill.id}`],
               ['Date & Time',      fmtDt(bill.CreatedOn||bill.BillDate)],
               ['Customer',         bill.CustomerName],
-              ['Customer Code',    bill.CustomerCode||'â€”'],
+              ['Customer Code',    bill.CustomerCode||'—'],
               ['Items',            `${bill.ItemCount||lines.length} line${(bill.ItemCount||lines.length)!==1?'s':''}`],
-              ['Created By',       bill.CreatedByUsername||'â€”'],
+              ['Created By',       bill.CreatedByUsername||'—'],
             ].map(([label,val]) => (
               <div key={label}>
                 <div style={{color:'var(--text-muted)',fontSize:'.66rem',fontWeight:700,marginBottom:'.1rem',textTransform:'uppercase',letterSpacing:'.04em'}}>{label}</div>
@@ -285,19 +317,19 @@ const ViewMoreModal = ({ bill, onClose, onOpenInvoice }) => {
                       <td style={{padding:'.32rem .5rem',textAlign:'center',color:'var(--text-muted)',fontSize:'.72rem'}}>{i+1}</td>
                       <td style={{padding:'.32rem .5rem'}}>
                         <div style={{fontWeight:700,color:'var(--text-primary)'}}>{l.ProductName}</div>
-                        {l.Units && <div style={{fontSize:'.7rem',color:'var(--text-muted)'}}>{l.Units}{l.PriceCodeName?` Â· ${l.PriceCodeName}`:''}</div>}
+                        {l.Units && <div style={{fontSize:'.7rem',color:'var(--text-muted)'}}>{l.Units}{l.PriceCodeName?` · ${l.PriceCodeName}`:''}</div>}
                       </td>
                       <td style={{padding:'.32rem .5rem',textAlign:'right',fontVariantNumeric:'tabular-nums'}}>{l.Qty}</td>
                       <td style={{padding:'.32rem .5rem',textAlign:'right',fontVariantNumeric:'tabular-nums'}}>
                         {l.ChangeableRate!=null ? (
-                          <span title={`Price code rate: ${fmtAmt(l.Price)}`}>
-                            {fmtAmt(l.ChangeableRate)} <span style={{fontSize:'.68rem',color:'#0277bd'}}>âœŽ</span>
+                          <span title={`Price code rate: ${fmtAmt(l.Price)}`} style={{display:'inline-flex',alignItems:'center',gap:4}}>
+                            {fmtAmt(l.ChangeableRate)} <Pencil size={12} style={{color:'#0277bd'}}/>
                           </span>
                         ) : fmtAmt(l.Price)}
                         {parseFloat(l.DiscountPercent||0)>0 && <div style={{fontSize:'.68rem',color:'#e53935'}}>-{l.DiscountPercent}%</div>}
                       </td>
                       {hasGST && <td style={{padding:'.32rem .5rem',textAlign:'right',fontSize:'.75rem',color:parseFloat(l.GSTAmount||0)>0?'#0277bd':'var(--text-muted)'}}>
-                        {parseFloat(l.GSTAmount||0)>0 ? `${l.GSTPercent}%` : 'â€”'}
+                        {parseFloat(l.GSTAmount||0)>0 ? `${l.GSTPercent}%` : '—'}
                       </td>}
                       <td style={{padding:'.32rem .5rem',textAlign:'right',fontWeight:700,color:'var(--primary-dark)',fontVariantNumeric:'tabular-nums'}}>{fmtAmt(l.Amount)}</td>
                     </tr>
@@ -333,8 +365,8 @@ const ViewMoreModal = ({ bill, onClose, onOpenInvoice }) => {
               <div style={{display:'flex',justifyContent:'space-between',padding:'.35rem 0',fontWeight:800,fontSize:'.92rem',color:'#8A5125',borderTop:'2px solid #8A5125',marginTop:'.15rem'}}>
                 <span>Grand Total</span><span>{fmtAmt(bill.GrandTotal)}</span>
               </div>
-              <div style={{textAlign:'right',fontSize:'.75rem',color:'var(--text-muted)',marginTop:'.25rem'}}>
-                â­ {bill.EarnedPoints} pts earned
+              <div style={{textAlign:'right',fontSize:'.75rem',color:'var(--text-muted)',marginTop:'.25rem',display:'flex',alignItems:'center',justifyContent:'flex-end',gap:4}}>
+                <Award size={14}/> {bill.EarnedPoints} pts earned
               </div>
             </div>
           </div>
@@ -350,7 +382,7 @@ const ViewMoreModal = ({ bill, onClose, onOpenInvoice }) => {
   );
 };
 
-/* â”€â”€ Flash toast â”€â”€ */
+/* ── Flash toast ── */
 const FlashToast = ({ show }) => {
   if (!show) return null;
   return createPortal(
@@ -363,7 +395,7 @@ const FlashToast = ({ show }) => {
   );
 };
 
-/* â”€â”€ BillingList â”€â”€ */
+/* ── BillingList ── */
 const BillingList = () => {
   const navigate    = useNavigate();
   const location    = useLocation();
@@ -376,10 +408,11 @@ const BillingList = () => {
   const [loading,   setLoading]   = useState(true);
   const [search,    setSearch]    = useState('');
   const [deb,       setDeb]       = useState('');
-  const [dateMode,  setDateMode]  = useState('period');
+  const [dateFilterMode, setDateFilterMode] = useState('period');
   const [dateFrom,  setDateFrom]  = useState('');
   const [dateTo,    setDateTo]    = useState('');
-  const [dateExact, setDateExact] = useState('');
+  const [selectedDate, setSelectedDate] = useState('');
+  const [dateError, setDateError] = useState('');
   const [page,      setPage]      = useState(1);
   const [loadedPage,setLoadedPage]= useState(1);
   const [total,     setTotal]     = useState(0);
@@ -404,8 +437,13 @@ const BillingList = () => {
   const dropMenuRef  = useRef(null);
   const fetchSeqRef = useRef(0);
   const rowClickTimerRef = useRef(null);
+  const { pageSize, containerRef, rowRef, bottomRef } = useResponsivePageSize({
+    defaultRowHeight: 26,
+    mobileRowHeight: 148,
+    safeSpacing: 12,
+  });
 
-  const totalPages        = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const totalPages        = Math.max(1, Math.ceil(total / pageSize));
   const visibleSalesTotal = billings.reduce((sum, bill) => {
     const amount = Number.parseFloat(bill.GrandTotal ?? bill.Amount ?? 0);
     return sum + (Number.isFinite(amount) ? amount : 0);
@@ -462,28 +500,38 @@ const BillingList = () => {
     navigate(`/billing/${bill.id}?mode=edit`);
   }, [navigate]);
 
-  /* â”€â”€ Auto-open invoice from BillingForm â”€â”€ */
+  /* ── Auto-open invoice from BillingForm ── */
   useEffect(() => {
     if (location.state?.newBill) { setInvoiceBill(location.state.newBill); window.history.replaceState({}, ''); }
   }, []); // eslint-disable-line
 
-  /* â”€â”€ Debounce search â”€â”€ */
+  /* ── Debounce search ── */
   useEffect(() => {
     const t = setTimeout(() => { setDeb(search); setPage(1); }, 400);
     return () => clearTimeout(t);
   }, [search]);
+  useEffect(() => {
+    setPage(1);
+    setBillings([]);
+    setKbRow(-1);
+  }, [pageSize]);
 
-  /* â”€â”€ Fetch â€” now fetches BillingHeader with line_items â”€â”€ */
+  /* ── Date filter params — Change Period (from/to) or Change Date (single day) ── */
+  const getDateParams = () => {
+    if (dateFilterMode === 'date') {
+      return selectedDate ? { date_from: selectedDate, date_to: selectedDate } : {};
+    }
+    const params = {};
+    if (dateFrom) params.date_from = dateFrom;
+    if (dateTo)   params.date_to   = dateTo;
+    return params;
+  };
+
+  /* ── Fetch — now fetches BillingHeader with line_items ── */
   const fetchBillings = useCallback(async () => {
     const seq = ++fetchSeqRef.current;
-    const params = { page, page_size: PAGE_SIZE };
+    const params = { page, page_size: pageSize, ...getDateParams() };
     if (deb) params.search = deb;
-    if (dateMode === 'specific') {
-      if (dateExact) params.date = dateExact;
-    } else {
-      if (dateFrom) params.date_from = dateFrom;
-      if (dateTo)   params.date_to   = dateTo;
-    }
     const cacheKey = makePageKey('billings', params);
     const cached = getCachedPage('billings', cacheKey);
     if (cached) {
@@ -504,7 +552,7 @@ const BillingList = () => {
       setLoadedPage(page);
       const rows = data.results !== undefined ? data.results : (Array.isArray(data) ? data : []);
       const totalCount = data.count ?? rows.length;
-      const maxPage = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+      const maxPage = Math.max(1, Math.ceil(totalCount / pageSize));
       [page - 1, page + 1].filter(n => n >= 1 && n <= maxPage).forEach(n => {
         const nextParams = { ...params, page: n };
         prefetchCachedPage('billings', makePageKey('billings', nextParams), () => billingService.getBillings(nextParams));
@@ -515,11 +563,56 @@ const BillingList = () => {
     } finally {
       if (seq === fetchSeqRef.current) setLoading(false);
     }
-  }, [page, deb, dateMode, dateFrom, dateTo, dateExact]);
+  }, [page, pageSize, deb, dateFilterMode, dateFrom, dateTo, selectedDate, dateError]);
 
-  useEffect(() => { fetchBillings(); }, [fetchBillings]);
+  useEffect(() => { if (!dateError) fetchBillings(); }, [fetchBillings, dateError]);
 
-  /* â”€â”€ View detail â€” fetch full bill with line_items â”€â”€ */
+  /* ── Date range validation ── */
+  const validateDateRange = (nextFrom, nextTo) => {
+    if (nextFrom && nextTo && new Date(nextTo) < new Date(nextFrom)) {
+      setDateError('To Date cannot be earlier than From Date.');
+      return false;
+    }
+    setDateError('');
+    return true;
+  };
+
+  const handleDateFilterModeChange = (mode) => {
+    setDateFilterMode(mode);
+    setDateError('');
+    setPage(1);
+    if (mode === 'period') setSelectedDate('');
+    if (mode === 'date') { setDateFrom(''); setDateTo(''); }
+  };
+
+  const handleSelectedDateChange = (e) => {
+    setSelectedDate(e.target.value);
+    setPage(1);
+  };
+
+  const handleFromDateChange = (e) => {
+    const nextFrom = e.target.value;
+    setDateFrom(nextFrom);
+    setPage(1);
+    validateDateRange(nextFrom, dateTo);
+  };
+
+  const handleToDateChange = (e) => {
+    const nextTo = e.target.value;
+    setDateTo(nextTo);
+    setPage(1);
+    validateDateRange(dateFrom, nextTo);
+  };
+
+  const handleClearPeriod = () => {
+    setDateFrom('');
+    setDateTo('');
+    setSelectedDate('');
+    setDateError('');
+    setPage(1);
+  };
+
+  /* ── View detail — fetch full bill with line_items ── */
   const openViewMore = async (b) => {
     // If already has line_items, use directly; else fetch detail
     if (b.line_items) { setViewMore(b); return; }
@@ -537,7 +630,7 @@ const BillingList = () => {
     } catch { setInvoiceBill(b); }
   };
 
-  /* â”€â”€ Export dropdown position â”€â”€ */
+  /* ── Export dropdown position ── */
   useLayoutEffect(() => {
     if (showExportMenu && exportBtnRef.current) {
       const r = exportBtnRef.current.getBoundingClientRect();
@@ -556,7 +649,7 @@ const BillingList = () => {
     return () => document.removeEventListener('mousedown', h);
   }, [showExportMenu]);
 
-  /* â”€â”€ Selection â”€â”€ */
+  /* ── Selection ── */
   const toggleSelect = id =>
     setSelected(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const allOnPageSelected = billings.length>0 && billings.every(b=>selected.has(b.id));
@@ -566,7 +659,7 @@ const BillingList = () => {
     else setSelected(prev => { const n=new Set(prev); billings.forEach(b=>n.add(b.id)); return n; });
   };
 
-  /* â”€â”€ Delete â”€â”€ */
+  /* ── Delete ── */
   const handleDelete = async () => {
     const ids = selected.size > 0 ? [...selected] : [delTarget];
     setDeleting(true);
@@ -582,18 +675,12 @@ const BillingList = () => {
 
   const firePrintToast = () => { setFlashPrint(true); setTimeout(()=>setFlashPrint(false), 900); };
 
-  /* â”€â”€ Export â”€â”€ */
+  /* ── Export ── */
   const resolveExportData = async () => {
     if (selected.size > 0) return billings.filter(b=>selected.has(b.id));
     try {
-      const params = { page_size: 99999 };
+      const params = { page_size: 99999, ...getDateParams() };
       if (deb) params.search = deb;
-      if (dateMode === 'specific') {
-        if (dateExact) params.date = dateExact;
-      } else {
-        if (dateFrom) params.date_from = dateFrom;
-        if (dateTo)   params.date_to   = dateTo;
-      }
       const data = await billingService.getBillings(params);
       return data.results ?? (Array.isArray(data)?data:billings);
     } catch { return billings; }
@@ -616,7 +703,10 @@ const BillingList = () => {
     const blob = new Blob([csv],{type:'text/csv;charset=utf-8;'});
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href=url; a.download=`sales_${dateMode==='specific'&&dateExact?dateExact:dateFrom?`${dateFrom}_to_${dateTo||'now'}`:new Date().toISOString().slice(0,10)}.csv`;
+    const fileDateTag = dateFilterMode === 'date'
+      ? (selectedDate || new Date().toISOString().slice(0,10))
+      : (dateFrom ? `${dateFrom}_to_${dateTo||'now'}` : new Date().toISOString().slice(0,10));
+    a.href=url; a.download=`sales_${fileDateTag}.csv`;
     document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
   };
 
@@ -627,10 +717,10 @@ const BillingList = () => {
     const dateStr = new Date().toLocaleString('en-IN',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'});
     const totalAmt = data.reduce((s,b)=>s+parseFloat(b.GrandTotal||0),0);
     const totalPts = data.reduce((s,b)=>s+b.EarnedPoints,0);
-    const dateRangeLabel = dateMode === 'specific' && dateExact
-      ? `Date: ${new Date(dateExact).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'})}`
+    const dateRangeLabel = dateFilterMode === 'date' && selectedDate
+      ? `Date: ${new Date(selectedDate).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'})}`
       : (dateFrom || dateTo)
-        ? `Period: ${dateFrom ? new Date(dateFrom).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}) : 'â€¦'} â†’ ${dateTo ? new Date(dateTo).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}) : 'â€¦'}`
+        ? `Period: ${dateFrom ? new Date(dateFrom).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}) : '…'} → ${dateTo ? new Date(dateTo).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}) : '…'}`
         : 'All dates';
     const rowsHtml = data.map((b,idx) => `<tr>
       <td class="num">${idx+1}</td>
@@ -659,7 +749,7 @@ td.bold{font-weight:700}td.mono{font-family:'Courier New',monospace;font-size:9p
 @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}thead{display:table-header-group}tbody tr{page-break-inside:avoid}}
 </style></head><body>
 <div class="rpt-header">
-  <div class="rpt-header-left"><h1>Sales Report</h1><p>${data.length} record${data.length!==1?'s':''} &nbsp;Â·&nbsp; ${dateRangeLabel}</p></div>
+  <div class="rpt-header-left"><h1>Sales Report</h1><p>${data.length} record${data.length!==1?'s':''} &nbsp;·&nbsp; ${dateRangeLabel}</p></div>
   <div class="rpt-header-right"><div><strong>Exported:</strong> ${dateStr}</div></div>
 </div>
 <table><thead><tr>
@@ -669,7 +759,7 @@ td.bold{font-weight:700}td.mono{font-family:'Courier New',monospace;font-size:9p
 <tbody>${rowsHtml}
 <tr class="totals-row"><td colspan="4" class="r">Totals</td><td class="r">${fmtAmt(totalAmt)}</td><td class="c">${totalPts}</td><td colspan="2"></td></tr>
 </tbody></table>
-<div class="rpt-footer"><span>POS Billing System â€” Sales Report</span><span>Printed: ${dateStr}</span></div>
+<div class="rpt-footer"><span>POS Billing System — Sales Report</span><span>Printed: ${dateStr}</span></div>
 <script>window.onload=function(){window.print();}<\/script>
 </body></html>`;
     const w = window.open('','_blank','width=1200,height=800');
@@ -680,9 +770,9 @@ td.bold{font-weight:700}td.mono{font-family:'Courier New',monospace;font-size:9p
   const buildPages = () => {
     if (totalPages<=7) return Array.from({length:totalPages},(_,i)=>i+1);
     const pages=[];
-    if (page<=4) pages.push(1,2,3,4,5,'â€¦',totalPages);
-    else if (page>=totalPages-3) pages.push(1,'â€¦',totalPages-4,totalPages-3,totalPages-2,totalPages-1,totalPages);
-    else pages.push(1,'â€¦',page-1,page,page+1,'â€¦',totalPages);
+    if (page<=4) pages.push(1,2,3,4,5,'…',totalPages);
+    else if (page>=totalPages-3) pages.push(1,'…',totalPages-4,totalPages-3,totalPages-2,totalPages-1,totalPages);
+    else pages.push(1,'…',page-1,page,page+1,'…',totalPages);
     return pages;
   };
 
@@ -693,64 +783,82 @@ td.bold{font-weight:700}td.mono{font-family:'Courier New',monospace;font-size:9p
       {viewMore && <ViewMoreModal bill={viewMore} onClose={()=>setViewMore(null)} onOpenInvoice={b=>{setViewMore(null);openInvoice(b);}}/>}
 
       {/* Page header */}
-      <div className="page-header animate-in">
+      <div className="page-header sales-report-heading animate-in">
         <div>
           <h2 style={{fontFamily:'var(--font-heading)',fontWeight:800,color:'var(--primary)'}}>Sales Report</h2>
           <p className="page-header-sub">
             {total>0 ? `${total} sales record${total!==1?'s':''}` : 'Manage sales records and invoices'}
           </p>
         </div>
-        <div className="d-flex gap-2 align-center list-header-actions">
-          <div className="input-group list-header-search">
-            <span className="input-group-text"><SearchIcon/></span>
-            <input type="text" className="form-control"
-              placeholder="Search sales..."
-              value={search} onChange={e=>setSearch(e.target.value)}/>
+        <div className="d-flex gap-2 align-center list-header-actions sales-report-mobile-toolbar">
+          <SharedSearchField
+            className="list-header-search sales-report-search"
+            placeholder="Search sales..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+          />
+          <div className="sales-date-filter-section sales-report-date-section">
+            <div className="date-filter-toggle sales-report-date-toggle" role="group" aria-label="Sales date filter type">
+              <button type="button"
+                className={dateFilterMode === 'period' ? 'active' : ''}
+                onClick={() => handleDateFilterModeChange('period')}>
+                Change Period
+              </button>
+              <button type="button"
+                className={dateFilterMode === 'date' ? 'active' : ''}
+                onClick={() => handleDateFilterModeChange('date')}>
+                Change Date
+              </button>
+            </div>
+            {dateFilterMode === 'period' ? (
+              <div className="period-date-fields sales-report-period-fields">
+                <div className="date-field">
+                  <label htmlFor="sales-from-date">From Date</label>
+                  <div className="date-input-shell">
+                    <input id="sales-from-date" type="date" className="form-control form-control-sm"
+                      value={dateFrom} max={dateTo || undefined} onChange={handleFromDateChange}
+                      title="From date"/>
+                  </div>
+                </div>
+                <div className="date-field">
+                  <label htmlFor="sales-to-date">To Date</label>
+                  <div className="date-input-shell">
+                    <input id="sales-to-date" type="date" className="form-control form-control-sm"
+                      value={dateTo} min={dateFrom || undefined} onChange={handleToDateChange}
+                      title="To date"/>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="single-date-field sales-report-single-date">
+                <div className="date-field">
+                  <label htmlFor="sales-selected-date">Select Date</label>
+                  <div className="date-input-shell">
+                    <input id="sales-selected-date" type="date" className="form-control form-control-sm"
+                      value={selectedDate} onChange={handleSelectedDateChange}
+                      title="Select date"/>
+                  </div>
+                </div>
+              </div>
+            )}
+            {(dateFrom || dateTo || selectedDate) && (
+              <button type="button" className="btn btn-outline-secondary btn-sm"
+                onClick={handleClearPeriod}
+                title="Clear date filter">Clear</button>
+            )}
+            {dateError && <div className="date-range-error" role="alert">{dateError}</div>}
           </div>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={dateMode === 'specific'}
-            onClick={() => {
-              setDateMode(m => m === 'period' ? 'specific' : 'period');
-              setPage(1); setDateFrom(''); setDateTo(''); setDateExact('');
-            }}
-            className="date-mode-switch"
-            title="Toggle Period or Specific date">
-            <span className={`date-mode-option${dateMode === 'period' ? ' active' : ''}`}>Period</span>
-            <span className={`date-mode-option${dateMode === 'specific' ? ' active' : ''}`}>Specific</span>
-          </button>
-          {dateMode === 'period' ? (
-            <>
-              <input type="date" className="form-control form-control-sm"
-                value={dateFrom} onChange={e=>{setDateFrom(e.target.value);setPage(1);}}
-                title="From date"
-                style={{width:126,fontSize:'.76rem',height:30}}/>
-              <input type="date" className="form-control form-control-sm"
-                value={dateTo} onChange={e=>{setDateTo(e.target.value);setPage(1);}}
-                title="To date"
-                style={{width:126,fontSize:'.76rem',height:30}}/>
-            </>
-          ) : (
-            <input type="date" className="form-control form-control-sm"
-              value={dateExact} onChange={e=>{setDateExact(e.target.value);setPage(1);}}
-              title="Specific date"
-              style={{width:132,fontSize:'.76rem',height:30}}/>
-          )}
-          {(dateFrom || dateTo || dateExact) && (
-            <button className="btn btn-outline-secondary btn-sm"
-              onClick={()=>{setDateFrom('');setDateTo('');setDateExact('');setPage(1);}}
-              title="Clear date filter">Clear</button>
-          )}
-          <div style={{position:'relative'}}>
-            <button ref={exportBtnRef} className="btn btn-outline-secondary btn-sm"
-              onMouseDown={e=>e.stopPropagation()} onClick={()=>setShowExportMenu(v=>!v)}>
-              <FileDown size={14}/> Export
+          <div className="sales-report-actions">
+            <div style={{position:'relative'}}>
+              <button ref={exportBtnRef} className="btn btn-outline-secondary btn-sm"
+                onMouseDown={e=>e.stopPropagation()} onClick={()=>setShowExportMenu(v=>!v)}>
+                <FileDown size={14}/> Export
+              </button>
+            </div>
+            <button className="btn btn-primary btn-sm" onClick={()=>navigate('/billing/new')}>
+              New Sale
             </button>
           </div>
-          <button className="btn btn-primary btn-sm" onClick={()=>navigate('/billing/new')}>
-            New Sale
-          </button>
         </div>
         {showExportMenu && createPortal(
           <div ref={dropMenuRef} style={{position:'fixed',top:dropPos.top,right:dropPos.right,minWidth:190,background:'var(--card-bg)',border:'1.5px solid var(--primary)',borderRadius:10,boxShadow:'0 8px 28px rgba(0,0,0,.14)',zIndex:9999,overflow:'hidden',animation:'fadeIn .12s ease-out'}}>
@@ -779,81 +887,31 @@ td.bold{font-weight:700}td.mono{font-family:'Courier New',monospace;font-size:9p
         </div>
       )}
 
-      <div className="card animate-in animate-in-1 sales-report-container">
-        <div className="card-body sales-report-body">
-          <div className="list-toolbar" style={{display:'none'}}>
-            <div className="input-group" style={{flex:'0 0 auto',maxWidth:240}}>
-              <span className="input-group-text"><SearchIcon/></span>
-              <input type="text" className="form-control"
-                placeholder="Search sale, customerâ€¦"
-                value={search} onChange={e=>setSearch(e.target.value)}/>
-            </div>
-
-            {/* â”€â”€ Date filter: mode toggle + inputs â”€â”€ */}
-            <div style={{display:'flex',alignItems:'center',gap:'.4rem',flexShrink:0,flexWrap:'wrap'}}>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={dateMode === 'specific'}
-                onClick={() => {
-                  setDateMode(m => m === 'period' ? 'specific' : 'period');
-                  setPage(1); setDateFrom(''); setDateTo(''); setDateExact('');
-                }}
-                className="date-mode-switch"
-                title="Toggle Period or Specific date">
-                <span className={`date-mode-option${dateMode === 'period' ? ' active' : ''}`}>Period</span>
-                <span className={`date-mode-option${dateMode === 'specific' ? ' active' : ''}`}>Specific</span>
-              </button>
-              {dateMode === 'period' ? (
-                <>
-                  <input type="date" className="form-control form-control-sm"
-                    value={dateFrom} onChange={e=>{setDateFrom(e.target.value);setPage(1);}}
-                    title="From date"
-                    style={{width:138,fontSize:'.8rem',height:32}}/>
-                  <span style={{color:'var(--text-muted)',fontSize:'.75rem',flexShrink:0}}>â†’</span>
-                  <input type="date" className="form-control form-control-sm"
-                    value={dateTo} onChange={e=>{setDateTo(e.target.value);setPage(1);}}
-                    title="To date"
-                    style={{width:138,fontSize:'.8rem',height:32}}/>
-                </>
-              ) : (
-                <input type="date" className="form-control form-control-sm"
-                  value={dateExact} onChange={e=>{setDateExact(e.target.value);setPage(1);}}
-                  title="Specific date"
-                  style={{width:148,fontSize:'.8rem',height:32}}/>
-              )}
-
-              {/* Clear button â€” shown when any date filter is active */}
-              {(dateFrom || dateTo || dateExact) && (
-                <button className="btn btn-outline-secondary btn-sm"
-                  onClick={()=>{setDateFrom('');setDateTo('');setDateExact('');setPage(1);}}
-                  title="Clear date filter"
-                  style={{padding:'0 .5rem',height:32,fontSize:'.76rem',flexShrink:0}}>
-                  âœ• Clear
-                </button>
-              )}
-            </div>
-
-          </div>
-
+      <div className="card animate-in animate-in-1 sales-report-container sales-report-table-section">
+        <div ref={containerRef} className="card-body sales-report-body">
           <>
+              <div className="desktop-table-view">
               <SplitTable
-                className="table table-compact sales-report-table data-table"
+                className="table table-compact sales-report-table sales-report-responsive-table data-table"
                 tableProps={{ style: { tableLayout: 'fixed' } }}
                 tableRef={tableRef}
                 empty={billings.length===0}
                 head={(
                     <tr style={{background:'#8A5125'}}>
-                      <th style={{width:46,fontWeight:800,color:'#fff',background:'#8A5125',textAlign:'center'}}>S.No</th>
-                      <th style={{fontWeight:800,color:'#fff',background:'#8A5125',textAlign:'left'}}>Particular</th>
-                      <th style={{width:150,fontWeight:800,color:'#fff',background:'#8A5125',textAlign:'center'}}>Voucher No</th>
-                      <th style={{width:150,fontWeight:800,color:'#fff',background:'#8A5125',textAlign:'right'}}>Amount</th>
+                      <th className="sales-report-col-sno" style={{width:46,fontWeight:800,color:'#fff',background:'#8A5125',textAlign:'center'}}>S.No</th>
+                      <th className="sales-report-col-particular" style={{fontWeight:800,color:'#fff',background:'#8A5125',textAlign:'left'}}>Particular</th>
+                      <th className="sales-report-col-voucher hide-below-sm" style={{width:150,fontWeight:800,color:'#fff',background:'#8A5125',textAlign:'center'}}>
+                        <span className="sales-report-desktop-label">Voucher No</span>
+                        <span className="sales-report-mobile-label">Voucher</span>
+                      </th>
+                      <th className="sales-report-col-amount" style={{width:150,fontWeight:800,color:'#fff',background:'#8A5125',textAlign:'right'}}>Amount</th>
+                      <th className="sales-report-col-more responsive-more-cell" style={{width:64,fontWeight:800,color:'#fff',background:'#8A5125',textAlign:'center'}}>More</th>
                     </tr>
                 )}
               >
                     {billings.length===0 ? (
                       <tr className="sales-report-empty-row">
-                        <td colSpan={4} className="sales-report-empty-cell">
+                        <td colSpan={5} className="sales-report-empty-cell">
                           <div className="sales-report-empty-title">No data</div>
                           <div className="sales-report-empty-desc">No sales records yet. Create your first sale.</div>
                         </td>
@@ -862,7 +920,7 @@ td.bold{font-weight:700}td.mono{font-family:'Courier New',monospace;font-size:9p
                     {billings.map((b,idx) => {
                       const grandTotal = b.GrandTotal ?? b.Amount;
                       return (
-                        <tr key={b.id}
+                        <tr key={b.id} ref={idx === 0 ? rowRef : undefined}
                           className={`table-row-hover${kbRow===idx?' row-keyboard-selected':''}`}
                           style={{position:'relative',cursor:'pointer'}}
                           aria-selected={kbRow===idx}
@@ -870,19 +928,19 @@ td.bold{font-weight:700}td.mono{font-family:'Courier New',monospace;font-size:9p
                           onMouseLeave={() => setHoveredBillId(prev => prev === b.id ? null : prev)}
                           onClick={() => openBillingViewMode(b, idx)}
                           onDoubleClick={() => openBillingEditMode(b, idx)}>
-                          <td style={{color:'var(--text-muted)',fontSize:'.76rem',fontVariantNumeric:'tabular-nums',textAlign:'center'}}>
-                            {(loadedPage-1)*PAGE_SIZE+idx+1}
+                          <td className="sales-report-col-sno" style={{color:'var(--text-muted)',fontSize:'.76rem',fontVariantNumeric:'tabular-nums',textAlign:'center'}}>
+                            {(loadedPage-1)*pageSize+idx+1}
                           </td>
-                          <td className="sales-report-particular">
+                          <td className="sales-report-particular sales-report-col-particular">
                             <div style={{fontWeight:700,color:'var(--text-primary)',fontSize:'.83rem'}}>{b.CustomerName}</div>
                             {b.CustomerCode&&<div style={{fontSize:'.7rem',color:'var(--text-muted)'}}>{b.CustomerCode}</div>}
                           </td>
-                          <td style={{textAlign:'center'}}>
+                          <td className="sales-report-col-voucher hide-below-sm" style={{textAlign:'center'}}>
                             <code style={{fontSize:'.75rem',background:'var(--bg-soft)',padding:'2px 6px',borderRadius:4,fontWeight:700,color:'var(--primary-dark)'}}>
                               {b.BillNo||`#${b.id}`}
                             </code>
                           </td>
-                          <td className="row-action-anchor sales-report-amount" style={{textAlign:'right',fontWeight:700,fontSize:'.83rem',color:'var(--primary-dark)',fontVariantNumeric:'tabular-nums'}}>
+                          <td className="row-action-anchor sales-report-amount sales-report-col-amount" style={{textAlign:'right',fontWeight:700,fontSize:'.83rem',color:'var(--primary-dark)',fontVariantNumeric:'tabular-nums'}}>
                             {fmtAmt(grandTotal)}
                             <RowActionPopup
                               visible={selected.size < 2 && (hoveredBillId === b.id || kbRow === idx) && dismissedActionBillId !== b.id}
@@ -893,30 +951,37 @@ td.bold{font-weight:700}td.mono{font-family:'Courier New',monospace;font-size:9p
                               ]}
                             />
                           </td>
+                          <td className="sales-report-col-more responsive-more-cell">
+                            <button type="button" className="responsive-more-button sales-report-more-button"
+                              onClick={e => { e.preventDefault(); e.stopPropagation(); setViewMore(b); }}>More</button>
+                          </td>
                         </tr>
                       );
                     })}
                     </>}
               </SplitTable>
+              </div>
 
-              <div className="sales-report-fixed-total" aria-label="Sales report total amount">
+              <div className="sales-report-bottom">
+              <div className="sales-report-fixed-total sales-report-bottom-total" aria-label="Sales report total amount">
                 <span>Total Amount:</span>
                 <strong>{fmtAmt(visibleSalesTotal)}</strong>
               </div>
 
-              <div className="table-pagination-footer">
+              <div ref={bottomRef} className="table-pagination-footer">
                 <div className="product-record-info">
-                  Showing {billings.length ? ((loadedPage - 1) * PAGE_SIZE) + 1 : 0}-{Math.min(((loadedPage - 1) * PAGE_SIZE) + billings.length, total)} of {total} records
+                  Showing {billings.length ? ((loadedPage - 1) * pageSize) + 1 : 0}-{Math.min(((loadedPage - 1) * pageSize) + billings.length, total)} of {total} records
                 </div>
                 <div className="pagination" style={{marginTop:0}}>
                   <button className="pg-item" disabled={loadedPage===1 || total===0} onClick={() => setPage(Math.max(1,loadedPage-1))}>Previous</button>
                   {total > 0 && buildPages().map((n,i) =>
-                    n==='...' || n==='â€¦'
+                    n==='...' || n==='…'
                       ? <span key={`e${i}`} className="pg-item" style={{border:'none',cursor:'default',color:'var(--text-muted)'}}>...</span>
                       : <button key={n} className={`pg-item${loadedPage===n?' active':''}`} onClick={() => setPage(Number(n))}>{n}</button>
                   )}
                   <button className="pg-item" disabled={loadedPage===totalPages || total===0} onClick={() => setPage(Math.min(totalPages,loadedPage+1))}>Next</button>
                 </div>
+              </div>
               </div>
           </>
         </div>
@@ -931,7 +996,7 @@ td.bold{font-weight:700}td.mono{font-family:'Courier New',monospace;font-size:9p
         onConfirm={handleDelete}
         onCancel={()=>{setShowDel(false);setDelTarget(null);}}
         confirmVariant="danger"
-        confirmText={deleting?'Deletingâ€¦':'Delete'}
+        confirmText={deleting?'Deleting…':'Delete'}
         cancelText="Cancel"
       />
     </Layout>
@@ -939,10 +1004,3 @@ td.bold{font-weight:700}td.mono{font-family:'Courier New',monospace;font-size:9p
 };
 
 export default BillingList;
-
-
-
-
-
-
-

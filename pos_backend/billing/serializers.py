@@ -126,7 +126,11 @@ class BillingHeaderReadSerializer(serializers.ModelSerializer):
 
 class BillingLineInputSerializer(serializers.Serializer):
     ProductID         = serializers.PrimaryKeyRelatedField(queryset=Product.objects.filter(IsActive=True))
-    PriceCodeID       = serializers.PrimaryKeyRelatedField(queryset=PriceCodeList.objects.filter(IsActive=True))
+    PriceCodeID       = serializers.PrimaryKeyRelatedField(
+        queryset=PriceCodeList.objects.filter(IsActive=True),
+        required=False,
+        allow_null=True,
+    )
     Qty               = serializers.DecimalField(max_digits=10, decimal_places=2, min_value=Decimal('0.01'))
     IsDiscountApplied = serializers.BooleanField(default=False)
     DiscountPercent   = serializers.DecimalField(max_digits=5, decimal_places=2, default=Decimal('0'), min_value=Decimal('0'), max_value=Decimal('100'))
@@ -153,16 +157,20 @@ def validate_unique_billing_products(lines):
 
 def build_price_detail_lookup(lines):
     product_ids = [line['ProductID'].pk for line in lines]
-    price_code_ids = [line['PriceCodeID'].pk for line in lines]
+    coded_lines = [line for line in lines if line.get('PriceCodeID') is not None]
+    price_code_ids = [line['PriceCodeID'].pk for line in coded_lines]
     exact = {}
     by_name = {}
+
+    if not coded_lines:
+        return exact, by_name
 
     price_details = (
         ProductPriceDetails.objects
         .filter(ProductId_id__in=product_ids)
         .filter(
             Q(PriceCodeID_id__in=price_code_ids) |
-            Q(PriceName__in=[line['PriceCodeID'].PriceCodeName for line in lines])
+            Q(PriceName__in=[line['PriceCodeID'].PriceCodeName for line in coded_lines])
         )
     )
     for detail in price_details:
@@ -172,6 +180,8 @@ def build_price_detail_lookup(lines):
 
 
 def get_price_detail_from_lookup(exact, by_name, product, price_code):
+    if price_code is None:
+        return None
     return (
         exact.get((product.pk, price_code.pk)) or
         by_name.get((product.pk, price_code.PriceCodeName))
@@ -221,7 +231,8 @@ class BillingCreateSerializer(serializers.Serializer):
         price_exact, price_by_name = build_price_detail_lookup(lines_in)
         for idx, line in enumerate(lines_in, start=1):
             product    = line['ProductID']
-            req_price_code = line['PriceCodeID']
+            req_price_code = line.get('PriceCodeID')
+            changeable_rate = line.get('ChangeableRate', None)
 
             # For Fixed customers, per-row override is allowed for any operator.
             # The frontend sends the selected PriceCodeID; use it directly.
@@ -230,14 +241,17 @@ class BillingCreateSerializer(serializers.Serializer):
 
             # Fetch price from DB — never trust frontend rate
             price_detail = get_price_detail_from_lookup(price_exact, price_by_name, product, req_price_code)
-            if not price_detail:
+            if req_price_code is None and (price_code_type != 'Random' or changeable_rate is None):
+                raise serializers.ValidationError(
+                    {f'lines[{idx}]': 'Select a price code or enter a rate.'}
+                )
+            if req_price_code is not None and not price_detail:
                 raise serializers.ValidationError(
                     {f'lines[{idx}]': f'No price found for product "{product.ProductName}" with price code "{req_price_code.DisplayLabel}".'}
                 )
 
-            rate      = price_detail.ProductPrice
+            rate      = price_detail.ProductPrice if price_detail else Decimal(str(changeable_rate))
             # Store user-edited rate as ChangeableRate; use it for calculation
-            changeable_rate = line.get('ChangeableRate', None)
             if changeable_rate is not None:
                 calc_rate = Decimal(str(changeable_rate))
             else:
@@ -441,13 +455,17 @@ class BillingUpdateSerializer(serializers.Serializer):
         price_exact, price_by_name = build_price_detail_lookup(lines_in)
         for idx, line in enumerate(lines_in, start=1):
             product = line['ProductID']
-            req_price_code = line['PriceCodeID']
+            req_price_code = line.get('PriceCodeID')
+            changeable_rate = line.get('ChangeableRate', None)
             price_detail = get_price_detail_from_lookup(price_exact, price_by_name, product, req_price_code)
-            if not price_detail:
+            if req_price_code is None and (price_code_type != 'Random' or changeable_rate is None):
+                raise serializers.ValidationError(
+                    {f'lines[{idx}]': 'Select a price code or enter a rate.'}
+                )
+            if req_price_code is not None and not price_detail:
                 raise serializers.ValidationError({f'lines[{idx}]': f'No price found for product "{product.ProductName}".'})
 
-            rate = price_detail.ProductPrice
-            changeable_rate = line.get('ChangeableRate', None)
+            rate = price_detail.ProductPrice if price_detail else Decimal(str(changeable_rate))
             if changeable_rate is not None:
                 calc_rate = Decimal(str(changeable_rate))
             else:
