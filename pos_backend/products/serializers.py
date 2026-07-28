@@ -6,6 +6,14 @@ from .models import ProductGroup, Product, ProductPriceDetails, PriceCodeList, P
 
 PRICE_NAMES = [c[0] for c in PRICE_NAME_CHOICES]
 
+
+class RequiredGSTIntegerField(serializers.IntegerField):
+    def to_internal_value(self, data):
+        if data is None or data == '':
+            self.fail('required')
+        return super().to_internal_value(data)
+
+
 def _normalized_product_name(value):
     return ' '.join((value or '').split()).casefold()
 
@@ -114,6 +122,16 @@ class ProductSerializer(serializers.ModelSerializer):
     UnitName          = serializers.CharField(source='UnitId.UnitName', read_only=True, default=None)
     prices            = ProductPriceDetailsSerializer(many=True, read_only=True)
     ProductCode       = serializers.CharField(read_only=True)
+    GSTPercent        = RequiredGSTIntegerField(
+        required=True, min_value=0, max_value=100,
+        error_messages={
+            'required': 'GST Percentage is required.',
+            'null': 'GST Percentage is required.',
+            'invalid': 'Please enter a valid GST percentage.',
+            'min_value': 'GST Percentage cannot be negative.',
+            'max_value': 'Please enter a valid GST percentage.',
+        },
+    )
 
     class Meta:
         model = Product
@@ -125,7 +143,10 @@ class ProductSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['id', 'ProductCode', 'CreatedOn', 'UpdatedAt', 'CreatedBy',
                             'CreatedByUsername', 'GroupName', 'UnitCode', 'UnitName']
-        extra_kwargs = {'HSNCode': {'required': False, 'allow_blank': True, 'allow_null': True}}
+        extra_kwargs = {
+            'HSNCode': {'required': True, 'allow_blank': False, 'allow_null': False},
+            'GSTPercent': {'required': True},
+        }
 
     def validate_ProductName(self, value):
         if not value or not value.strip():
@@ -134,7 +155,9 @@ class ProductSerializer(serializers.ModelSerializer):
 
     def validate_HSNCode(self, value):
         val = (value or '').strip()
-        return val or None
+        if not val:
+            raise serializers.ValidationError("HSN Code is required.")
+        return val
 
     def validate_Units(self, value):
         if not value or not value.strip():
@@ -152,6 +175,15 @@ class ProductSerializer(serializers.ModelSerializer):
         return value
 
     def validate(self, attrs):
+        hsn = attrs.get('HSNCode', getattr(self.instance, 'HSNCode', None))
+        gst = attrs.get('GSTPercent', getattr(self.instance, 'GSTPercent', None))
+        field_errors = {}
+        if hsn is None or str(hsn).strip() == '':
+            field_errors['HSNCode'] = 'HSN Code is required.'
+        if gst is None or gst == '':
+            field_errors['GSTPercent'] = 'GST Percentage is required.'
+        if field_errors:
+            raise serializers.ValidationError(field_errors)
         name = attrs.get('ProductName', getattr(self.instance, 'ProductName', ''))
         group = attrs.get('GroupId', getattr(self.instance, 'GroupId', None))
         if _has_product_duplicate(name, group, self.instance.pk if self.instance else None):
@@ -197,8 +229,17 @@ class ProductWithPricesCreateSerializer(serializers.Serializer):
                            required=False, allow_null=True)
     ProductName      = serializers.CharField(max_length=200)
     ProductNameTamil = serializers.CharField(max_length=200, required=False, allow_null=True, allow_blank=True)
-    HSNCode          = serializers.CharField(max_length=20, required=False, allow_null=True, allow_blank=True)
-    GSTPercent       = serializers.IntegerField(required=False, default=0, min_value=0, max_value=100)
+    HSNCode          = serializers.CharField(max_length=20, required=True, allow_null=False, allow_blank=False)
+    GSTPercent       = RequiredGSTIntegerField(
+        required=True, min_value=0, max_value=100,
+        error_messages={
+            'required': 'GST Percentage is required.',
+            'null': 'GST Percentage is required.',
+            'invalid': 'Please enter a valid GST percentage.',
+            'min_value': 'GST Percentage cannot be negative.',
+            'max_value': 'Please enter a valid GST percentage.',
+        },
+    )
     Quantity         = serializers.IntegerField(required=False, allow_null=True, min_value=0)
     Units            = serializers.CharField(max_length=100)
     UnitId           = serializers.PrimaryKeyRelatedField(queryset=Unit.objects.all(), required=False, allow_null=True)
@@ -217,9 +258,15 @@ class ProductWithPricesCreateSerializer(serializers.Serializer):
 
     def validate_HSNCode(self, value):
         val = (value or '').strip()
-        return val or None
+        if not val:
+            raise serializers.ValidationError("HSN Code is required.")
+        return val
 
     def validate(self, attrs):
+        if attrs.get('HSNCode') is None or str(attrs.get('HSNCode')).strip() == '':
+            raise serializers.ValidationError({'HSNCode': 'HSN Code is required.'})
+        if attrs.get('GSTPercent') is None or attrs.get('GSTPercent') == '':
+            raise serializers.ValidationError({'GSTPercent': 'GST Percentage is required.'})
         product_id = self.context.get('product_id')
         if _has_product_duplicate(attrs['ProductName'], attrs.get('GroupId'), product_id):
             raise serializers.ValidationError({

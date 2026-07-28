@@ -18,6 +18,7 @@ import {
 } from '../../utils/excelImportFeedback';
 import useResponsivePageSize from '../../hooks/useResponsivePageSize';
 import AutoFitColumns from '../../components/AutoFitColumns';
+import SharedSearchField from '../../components/SharedSearchField';
 
 const TrashIcon  = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{width:14,height:14}}><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>;
 const ViewIcon   = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{width:14,height:14}}><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>;
@@ -684,53 +685,52 @@ const ProductList = () => {
 
   return (
     <Layout>
-      <div className="page-header product-list-header animate-in">
-        <div>
-          <h2 style={{fontFamily:'var(--font-heading)',fontWeight:800}}>Product List</h2>
-          <p className="page-header-sub">
-            {total>0?`${total} product${total!==1?'s':''} in catalog`:'Manage and organise your product catalog'}
-          </p>
+      <div className="page-header price-code-list-header product-list-header product-list-page-header shared-list-toolbar animate-in">
+        <div className="list-title-block product-list-title-block">
+          <h2 className="price-code-list-title product-list-title" style={{fontFamily:'var(--font-heading)',fontWeight:800}}>Product List</h2>
+          <p className="page-header-sub product-list-subtitle">Admin · Manage products in catalog</p>
         </div>
-        <div className="d-flex gap-2 align-center list-header-actions">
-          <div className="input-group list-header-search">
-            <span className="input-group-text"><SearchIcon/></span>
-            <input ref={searchInputRef} type="text" className="form-control"
-              placeholder="Search products..."
-              value={search} onChange={e => setSearch(e.target.value)}/>
-          </div>
-          <select className="form-select form-select-sm" style={{width:'auto',minWidth:130}}
+        <div className="d-flex gap-2 align-center list-header-actions price-code-toolbar price-code-list-toolbar shared-list-toolbar-controls product-list-toolbar product-list-toolbar-controls">
+          <SharedSearchField
+            ref={searchInputRef}
+            className="list-header-search price-code-search product-list-search"
+            placeholder="Search products..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+          />
+          <select className="form-select form-select-sm product-list-filter product-group-filter" style={{width:'auto',minWidth:130}}
             value={groupFilter} onChange={e => setGroupFilter(e.target.value)}>
             <option value="">All Groups</option>
             {groups.map(g => <option key={g.id} value={g.id}>{g.GroupName}</option>)}
           </select>
-          <select className="form-select form-select-sm" style={{width:'auto',minWidth:112}}
+          <select className="form-select form-select-sm product-list-filter product-status-filter" style={{width:'auto',minWidth:112}}
             value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
             <option value="">All Status</option>
             <option value="true">Active</option>
             <option value="false">Inactive</option>
           </select>
           {multiSelectActive && isAdmin && (
-            <button className="btn btn-danger btn-sm" onClick={() => setShowDel(true)}>
+            <button className="btn btn-danger btn-sm product-bulk-delete-action" onClick={() => setShowDel(true)}>
               <TrashIcon/> Delete ({selected.size})
             </button>
           )}
-          <button className="btn btn-outline-secondary btn-sm" onClick={() => { if (!importing) fileInputRef.current?.click(); }} disabled={importing}>
+          <button className="btn btn-outline-secondary btn-sm product-list-action-button product-import-action" onClick={() => { if (!importing) fileInputRef.current?.click(); }} disabled={importing}>
             {importing ? <ImportSpin/> : <Upload size={14}/>} {importing ? 'Importing...' : 'Import'}
           </button>
-          <button className="btn btn-outline-secondary btn-sm" onClick={handleDownloadTemplate}>
+          <button className="btn btn-outline-secondary btn-sm product-list-action-button product-template-action" onClick={handleDownloadTemplate}>
             <Download size={14}/> Download Template
           </button>
-          <div style={{position:'relative'}}>
-            <button ref={exportBtnRef} className="btn btn-outline-secondary btn-sm"
+          <div className="product-list-export-action" style={{position:'relative'}}>
+            <button ref={exportBtnRef} className="btn btn-outline-secondary btn-sm product-list-action-button"
               onMouseDown={e => e.stopPropagation()}
               onClick={() => setShowDataMenu(v => !v)}>
               <FileDown size={14}/> Export
             </button>
           </div>
-          <button className="btn btn-primary btn-sm" onClick={() => navigate('/products/new')}>
+          <button className="btn btn-primary btn-sm product-list-action-button" onClick={() => navigate('/products/new')}>
             <PlusIcon/> Add Product
           </button>
-          <AutoFitColumns tableRef={autoFitTableRef}/>
+          <AutoFitColumns tableRef={autoFitTableRef} excelSelection className="product-list-auto-fit-button"/>
           <input ref={fileInputRef} type="file" accept=".xlsx" style={{display:'none'}} onChange={handleImportFile}/>
         </div>
 
@@ -855,12 +855,12 @@ const ProductList = () => {
                               onChange={isAdmin ? () => toggleSelect(p.id) : () => {}}
                               title="Select product"/>
                           </td>
-                          <td className="product-cell-sno">{pageStartIndex+idx+1}</td>
-                          <td className="product-cell-group hide-below-xl" title={group || BLANK}>{group || BLANK}</td>
-                          <td className="product-cell-name" title={name || BLANK}>{name || BLANK}</td>
-                          <td className="product-cell-qty hide-below-sm" title={qty ?? BLANK}>{qty ?? BLANK}</td>
-                          <td className="product-cell-unit hide-below-md" title={unit || BLANK}>{unit || BLANK}</td>
-                          <td className="product-cell-gst hide-below-xl" title={`${gst ?? 0}%`}>{gst ?? 0}%</td>
+                          <td className="product-cell-sno" data-autofit-value={pageStartIndex+idx+1}>{pageStartIndex+idx+1}</td>
+                          <td className="product-cell-group hide-below-xl" data-autofit-value={group || BLANK} title={group || BLANK}>{group || BLANK}</td>
+                          <td className="product-cell-name" data-autofit-value={name || BLANK} title={name || BLANK}>{name || BLANK}</td>
+                          <td className="product-cell-qty hide-below-sm" data-autofit-value={qty ?? BLANK} title={qty ?? BLANK}>{qty ?? BLANK}</td>
+                          <td className="product-cell-unit hide-below-md" data-autofit-value={unit || BLANK} title={unit || BLANK}>{unit || BLANK}</td>
+                          <td className="product-cell-gst hide-below-xl" data-autofit-value={`${gst ?? 0}%`} title={`${gst ?? 0}%`}>{gst ?? 0}%</td>
                           <td className="product-cell-status row-action-anchor">
                             <span className={`${active ? 'status-active' : 'status-inactive'} list-status-pill ${active ? 'active' : 'inactive'}`}>
                               {active ? 'Active' : 'Inactive'}

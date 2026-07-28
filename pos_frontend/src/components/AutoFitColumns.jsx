@@ -10,9 +10,22 @@ const isVisible = element => {
 };
 const maximumFor = header => /product.*name|particular|description/i.test(textOf(header)) ? 1000
   : /group/i.test(textOf(header)) ? 400 : 600;
-const minimumFor = header => /checkbox|select/i.test(header.className) ? 45
-  : /s\.?no|qty|quantity|gst/i.test(textOf(header)) ? 60
-    : /status/i.test(textOf(header)) ? 110 : MIN_WIDTH;
+const minimumFor = header => {
+  const label = textOf(header);
+  if (header.closest('.product-list-table')) {
+    if (/row-cb|checkbox|select/i.test(header.className)) return 42;
+    if (/s\.?no/i.test(label)) return 60;
+    if (/group/i.test(label)) return 110;
+    if (/product.*name/i.test(label)) return 180;
+    if (/qty|quantity/i.test(label)) return 80;
+    if (/unit/i.test(label)) return 80;
+    if (/gst/i.test(label)) return 75;
+    if (/status/i.test(label)) return 100;
+  }
+  return /checkbox|select/i.test(header.className) ? 45
+    : /s\.?no|qty|quantity|gst/i.test(label) ? 60
+      : /status/i.test(label) ? 110 : MIN_WIDTH;
+};
 
 const AutoFitIcon = () => (
   <svg className="auto-fit-columns-icon" viewBox="0 0 32 22" aria-hidden="true" focusable="false">
@@ -21,7 +34,7 @@ const AutoFitIcon = () => (
   </svg>
 );
 
-const AutoFitColumns = ({ tableRef }) => {
+const AutoFitColumns = ({ tableRef, excelSelection = false, tooltip = 'Auto Fit', className = '' }) => {
   const [isAutoFitMode, setIsAutoFitMode] = useState(false);
   const selected = useRef(new Set());
   const selectionAnchor = useRef(null);
@@ -58,7 +71,13 @@ const AutoFitColumns = ({ tableRef }) => {
       element.style.removeProperty('max-width');
     }
   };
-  const cellsFor = (table, index) => [...table.rows].map(row => row.cells[index]).filter(cell => cell && isVisible(cell));
+  const cellsFor = (table, index) => {
+    const columnCount = table.tHead?.rows?.[0]?.cells?.length || 0;
+    return [...table.rows]
+      .filter(row => row.parentElement === table.tHead || row.cells.length === columnCount)
+      .map(row => row.cells[index])
+      .filter(cell => cell && isVisible(cell));
+  };
 
   const setSelected = useCallback(next => {
     selected.current = next;
@@ -183,7 +202,7 @@ const AutoFitColumns = ({ tableRef }) => {
       if (!header.dataset.columnSelectionBound) {
         header.dataset.columnSelectionBound = 'true';
         header.addEventListener('pointerdown', event => {
-          if (event.target.closest('.column-resize-handle')) return;
+          if (event.target.closest('.column-resize-handle, .select-all-columns-control, input, button')) return;
           event.preventDefault();
           selecting.current = true;
           updateSelection(index, event);
@@ -223,12 +242,38 @@ const AutoFitColumns = ({ tableRef }) => {
       handle.addEventListener('pointerup', () => { drag.current = null; });
       header.appendChild(handle);
     });
+    const addSelectAllControl = () => {
+      if (!excelSelection) return;
+      const firstHeader = headers()[0];
+      if (!firstHeader || firstHeader.querySelector(':scope > .select-all-columns-control')) return;
+      const control = document.createElement('button');
+      control.type = 'button';
+      control.className = 'select-all-columns-control';
+      control.title = 'Select all columns';
+      control.setAttribute('aria-label', 'Select all columns');
+      control.addEventListener('pointerdown', event => {
+        event.preventDefault();
+        event.stopPropagation();
+      });
+      control.addEventListener('click', event => {
+        event.preventDefault();
+        event.stopPropagation();
+        const visible = headers()
+          .map((header, index) => (isVisible(header) ? index : null))
+          .filter(index => index != null);
+        setSelected(new Set(visible));
+        selectionAnchor.current = visible[0] ?? null;
+      });
+      firstHeader.appendChild(control);
+    };
     const stopSelecting = () => { selecting.current = false; };
     const refresh = () => requestAnimationFrame(() => {
       addHandles();
+      addSelectAllControl();
       if (isAutoFitMode) autoFitColumns(targetColumns());
     });
     addHandles();
+    addSelectAllControl();
     const observer = new MutationObserver(refresh);
     observer.observe(table.tBodies[0] || table, { childList: true, subtree: true });
     const resizeTarget = table.closest('.table-wrapper, .table-wrapper-scroll, .sales-entry-table-wrap, .desktop-table-view') || table;
@@ -240,7 +285,26 @@ const AutoFitColumns = ({ tableRef }) => {
       resizeObserver?.disconnect();
       window.removeEventListener('pointerup', stopSelecting);
     };
-  }, [applyWidth, autoFitColumns, enterExpandedMode, getTable, isAutoFitMode, setSelected, targetColumns]);
+  }, [applyWidth, autoFitColumns, enterExpandedMode, excelSelection, getTable, isAutoFitMode, setSelected, targetColumns]);
+
+  useEffect(() => {
+    if (!excelSelection) return undefined;
+    const keydown = event => {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey || event.key.toLowerCase() !== 'a') return;
+      if (event.target?.matches?.('input, textarea, select, [contenteditable="true"]')) return;
+      const table = getTable();
+      const zone = table?.closest('.product-table-zone');
+      if (!table || !(table.contains(document.activeElement) || zone?.contains(document.activeElement))) return;
+      event.preventDefault();
+      const visible = [...(table.tHead?.rows?.[0]?.cells || [])]
+        .map((header, index) => (isVisible(header) ? index : null))
+        .filter(index => index != null);
+      setSelected(new Set(visible));
+      selectionAnchor.current = visible[0] ?? null;
+    };
+    window.addEventListener('keydown', keydown);
+    return () => window.removeEventListener('keydown', keydown);
+  }, [excelSelection, getTable, setSelected]);
 
   useEffect(() => {
     const reset = () => {
@@ -275,9 +339,9 @@ const AutoFitColumns = ({ tableRef }) => {
   }, [toggleAutoFit]);
 
   return (
-    <button type="button" className={`btn btn-outline-secondary btn-sm auto-fit-columns-button${isAutoFitMode ? ' active' : ''}`}
+    <button type="button" className={`btn btn-outline-secondary btn-sm auto-fit-columns-button${className ? ` ${className}` : ''}${isAutoFitMode ? ' active' : ''}`}
       onClick={toggleAutoFit} aria-pressed={isAutoFitMode}
-      aria-label="Auto Fit Columns" title="Auto Fit" data-focus-tooltip="Auto Fit Columns">
+      aria-label="Auto Fit Columns" title={tooltip} data-focus-tooltip="Auto Fit Columns">
       <AutoFitIcon />
       <span className="visually-hidden">Auto Fit Columns</span>
     </button>

@@ -13,9 +13,12 @@ let _id = 0;
 export const ToastProvider = ({ children }) => {
   const [toasts, setToasts] = useState([]);
 
-  const push = useCallback(({ type = 'success', title, message, duration = 2800, ...rest }) => {
+  const push = useCallback(({ type = 'success', title, message, duration = 500, hideProgress = true, ...rest }) => {
     const id = ++_id;
-    setToasts(prev => [...prev, { id, type, title, message, duration, ...rest }]);
+    setToasts(prev => [
+      ...prev.filter(t => !(t.type === type && t.title === title && t.message === message)),
+      { id, type, title, message, duration, hideProgress, ...rest },
+    ]);
     setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), duration);
   }, []);
 
@@ -63,7 +66,7 @@ const ProgressBar = ({ type, duration = 2800 }) => {
 };
 
 /* ─── Single Toast ─── */
-const Toast = ({ id, type, title, message, details, detailsLabel = 'View Details', duration = 2800, hideProgress = false, onDismiss }) => {
+const Toast = ({ id, type, title, message, details, detailsLabel = 'View Details', duration = 500, hideProgress = true, onDismiss }) => {
   const isSuccess = type === 'success';
   const isError   = type === 'error';
   const [showDetails, setShowDetails] = useState(false);

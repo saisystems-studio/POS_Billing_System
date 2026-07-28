@@ -6,7 +6,6 @@ import LoadingSpinner from '../../components/LoadingSpinner';
 import productService from '../../services/productService';
 import productGroupService from '../../services/productGroupService';
 import { useAuth } from '../../context/AuthContext';
-import { useCompany } from '../../context/CompanyContext';
 import { useToast } from '../../context/ToastContext';
 import api from '../../services/api';
 import useMobileDropdownPlacement from '../../hooks/useMobileDropdownPlacement';
@@ -468,7 +467,7 @@ const UnitDropdown = ({ units, value, onChange, onUnitAdded, onUnitsChanged, dis
 
 const EMPTY_FORM = {
   GroupId:'', ProductName:'', ProductNameTamil:'',
-  HSNCode:'', GSTPercent:'0',
+  HSNCode:'', GSTPercent:'',
   Quantity:'', Units:'', UnitId:'', Description:'', IsActive:true,
 };
 
@@ -515,15 +514,15 @@ const ProductForm = () => {
   const location    = useLocation();
   const { id }      = useParams();
   const { isAdmin } = useAuth();
-  const { isGSTRegistered } = useCompany();
   const toast       = useToast();
   const isEdit      = id !== undefined && id !== 'new';
   const quickSalesReturn = location.state?.returnToSales && location.state?.salesDraft;
-  const returnToSalesForm = useCallback((productCreated = false) => {
+  const returnToSalesForm = useCallback((productCreated = false, createdProduct = null) => {
     navigate(location.state?.returnPath || '/billing/new', {
       state: {
         restoreSalesDraft: location.state?.salesDraft,
         productCreated,
+        createdProduct,
       },
     });
   }, [location.state, navigate]);
@@ -537,7 +536,9 @@ const ProductForm = () => {
   const [createdInfo, setCreatedInfo] = useState(null);
   const [groups,      setGroups]      = useState([]);
   const [units,       setUnits]       = useState([]);
+  const [groupTaxHint, setGroupTaxHint] = useState('');
   const saveInFlightRef = useRef(false);
+  const taxValueSourceRef = useRef({ HSNCode: 'empty', GSTPercent: 'empty' });
 
   /* ── fetch groups + units once ── */
   useEffect(() => {
@@ -571,13 +572,17 @@ const ProductForm = () => {
           ProductName:      data.ProductName || '',
           ProductNameTamil: data.ProductNameTamil || '',
           HSNCode:          data.HSNCode || '',
-          GSTPercent:       data.GSTPercent != null ? String(data.GSTPercent) : '0',
+          GSTPercent:       data.GSTPercent != null ? String(data.GSTPercent) : '',
           Quantity:         data.Quantity != null ? String(data.Quantity) : '',
           Units:            data.UnitName || data.Units || '',
           UnitId:           data.UnitId || '',
           Description:      data.Description || '',
           IsActive:         data.IsActive !== undefined ? data.IsActive : true,
         });
+        taxValueSourceRef.current = {
+          HSNCode: data.HSNCode != null && String(data.HSNCode).trim() ? 'manual' : 'empty',
+          GSTPercent: data.GSTPercent != null && String(data.GSTPercent).trim() !== '' ? 'manual' : 'empty',
+        };
         setCreatedInfo({ CreatedBy: data.CreatedByUsername || '', CreatedOn: data.CreatedOn });
       } catch (err) {
         setApiError(err.response?.data?.detail || 'Failed to load product.');
@@ -588,19 +593,33 @@ const ProductForm = () => {
 
   const handleChange = useCallback((e) => {
     const { name, value } = e.target;
+    if (name === 'HSNCode' || name === 'GSTPercent') {
+      taxValueSourceRef.current[name] = String(value).trim() === '' ? 'empty' : 'manual';
+    }
     setForm(p => ({...p, [name]: value}));
     if (errors[name]) setErrors(p => ({...p, [name]: ''}));
     if (apiError) setApiError('');
   }, [errors, apiError]);
 
-  /* When a group is selected, auto-fill HSN and GST if the group has them */
+  /* Apply group suggestions without replacing manually entered tax values. */
   const handleGroupSelected = useCallback((g) => {
-    if (!g) return;
-    setForm(p => ({
-      ...p,
-      HSNCode:    g.HSNCode  || p.HSNCode,
-      GSTPercent: g.GSTPercent != null && g.GSTPercent > 0 ? String(g.GSTPercent) : p.GSTPercent,
-    }));
+    const hsnDefault = g?.HSNCode != null ? String(g.HSNCode).trim() : '';
+    const gstDefault = g?.GSTPercent != null && String(g.GSTPercent).trim() !== '' ? String(g.GSTPercent) : '';
+    setGroupTaxHint(g && !hsnDefault && !gstDefault
+      ? 'The selected Product Group has no default HSN/GST values. Enter them manually to continue.'
+      : '');
+    setForm(current => {
+      const next = { ...current };
+      ['HSNCode', 'GSTPercent'].forEach(field => {
+        const suggestion = field === 'HSNCode' ? hsnDefault : gstDefault;
+        if (taxValueSourceRef.current[field] === 'auto' || taxValueSourceRef.current[field] === 'empty') {
+          next[field] = suggestion;
+          taxValueSourceRef.current[field] = suggestion ? 'auto' : 'empty';
+        }
+      });
+      return next;
+    });
+    setErrors(current => ({ ...current, HSNCode: '', GSTPercent: '' }));
   }, []);
 
   const validate = () => {
@@ -612,14 +631,17 @@ const ProductForm = () => {
       e.ProductNameTamil = `Tamil product name must not exceed ${TAMIL_NAME_MAX} characters.`;
     if (!form.UnitId) e.Units = 'Select a Unit/UQC from the list.';
     else if (form.Units.trim().length > UNIT_MAX) e.Units = `Unit must not exceed ${UNIT_MAX} characters.`;
-    if (isGSTRegistered && !form.HSNCode.trim()) e.HSNCode = 'HSN Code is required.';
+    if (!form.HSNCode.trim()) e.HSNCode = 'HSN Code is required.';
     else if (form.HSNCode.trim().length > HSN_MAX)
       e.HSNCode = `HSN Code must not exceed ${HSN_MAX} characters.`;
     if (form.Quantity !== '' && (isNaN(parseInt(form.Quantity, 10)) || parseInt(form.Quantity, 10) < 0))
       e.Quantity = 'Enter a valid non-negative number.';
-    if (isGSTRegistered) {
-      const gp = parseInt(form.GSTPercent, 10);
-      if (isNaN(gp) || gp < 0 || gp > 100) e.GSTPercent = 'GST % must be 0–100.';
+    if (String(form.GSTPercent).trim() === '') e.GSTPercent = 'GST Percentage is required.';
+    else {
+      const gp = Number(form.GSTPercent);
+      if (!Number.isFinite(gp) || !Number.isInteger(gp) || gp > 100)
+        e.GSTPercent = 'Please enter a valid GST percentage.';
+      else if (gp < 0) e.GSTPercent = 'GST Percentage cannot be negative.';
     }
     return e;
   };
@@ -635,6 +657,7 @@ const ProductForm = () => {
       requestAnimationFrame(() => {
         const first = formElement?.querySelector('[aria-invalid="true"], .is-invalid');
         first?.focus();
+        first?.scrollIntoView?.({ block: 'center', inline: 'nearest', behavior: 'smooth' });
       });
       return;
     }
@@ -648,8 +671,8 @@ const ProductForm = () => {
       Description:      form.Description.trim() || null,
       IsActive:         form.IsActive,
       GroupId:          form.GroupId ? parseInt(form.GroupId, 10) : null,
-      HSNCode:          isGSTRegistered ? form.HSNCode.trim() : null,
-      GSTPercent:       isGSTRegistered ? (parseInt(form.GSTPercent, 10) || 0) : 0,
+      HSNCode:          form.HSNCode.trim(),
+      GSTPercent:       Number(form.GSTPercent),
     };
     if (form.Quantity !== '') payload.Quantity = parseInt(form.Quantity, 10);
     try {
@@ -673,13 +696,26 @@ const ProductForm = () => {
         toast.success('Updated', 'Product updated successfully.');
         setTimeout(() => navigate('/products'), 1500);
       } else {
-        await productService.createProductWithPrices(payload);
+        const createdProduct = await productService.createProductWithPrices(payload);
         toast.success('Saved', 'Product saved successfully.');
         if (quickSalesReturn) {
-          setTimeout(() => returnToSalesForm(true), 600);
+          setTimeout(() => returnToSalesForm(true, createdProduct), 600);
           return;
         }
-        setForm({ ...EMPTY_FORM, GroupId: form.GroupId });
+        const retainedGroup = groups.find(group => String(group.id) === String(form.GroupId));
+        const retainedHsn = retainedGroup?.HSNCode != null ? String(retainedGroup.HSNCode).trim() : '';
+        const retainedGst = retainedGroup?.GSTPercent != null && String(retainedGroup.GSTPercent).trim() !== ''
+          ? String(retainedGroup.GSTPercent) : '';
+        taxValueSourceRef.current = {
+          HSNCode: retainedHsn ? 'auto' : 'empty',
+          GSTPercent: retainedGst ? 'auto' : 'empty',
+        };
+        setForm({
+          ...EMPTY_FORM,
+          GroupId: form.GroupId,
+          HSNCode: retainedHsn,
+          GSTPercent: retainedGst,
+        });
         setErrors({});
         setApiError('');
         fetchNextCode();
@@ -712,10 +748,10 @@ const ProductForm = () => {
 
   return (
     <Layout>
-      <div className="page-header product-page-header animate-in">
+      <div className="page-header product-page-header professional-form-title-card animate-in">
         <div>
           <h2 style={{fontFamily:'var(--font-heading)',fontWeight:800}}>
-            {isEdit ? (isAdmin ? 'Edit Product' : 'View Product') : 'Add Product'}
+            {isEdit ? (isAdmin ? 'Edit Product Details' : 'View Product Details') : 'Add Product Details'}
           </h2>
           <p className="page-header-sub">
             {isEdit ? (isAdmin ? 'Update product details' : 'Viewing product (read-only)') : 'Add a new product'}
@@ -732,10 +768,11 @@ const ProductForm = () => {
       <form className="professional-form-layout product-professional-form" onSubmit={handleSubmit} noValidate>
         <div className="card animate-in animate-in-1 professional-form-container product-form-container" style={{marginBottom:'1rem'}}>
           <div className="card-body professional-form-content" style={{padding:'.875rem 1.25rem'}}>
+            <div className="professional-section-title product-section-information">Product Information</div>
 
             {/* Row 1: Product Name | Product Code */}
-            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'.65rem',marginBottom:'.65rem'}}>
-              <div>
+            <div className="product-form-row product-form-name-code" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'.65rem',marginBottom:'.65rem'}}>
+              <div className="product-field product-field-name">
                 <label style={labelStyle}>Product Name (Eng) <Req/></label>
                 <input name="ProductName" type="text"
                   className={`form-control${errors.ProductName?' is-invalid':''}`}
@@ -748,7 +785,7 @@ const ProductForm = () => {
                   {form.ProductName.length}/{PRODUCT_NAME_MAX}
                 </div>
               </div>
-              <div>
+              <div className="product-field product-field-code">
                 <label style={labelStyle}>Product Code</label>
                 <input type="text" readOnly tabIndex={-1} value={productCode || '…'}
                   style={{...CI,width:'100%',fontFamily:'ui-monospace,monospace',background:'var(--bg-soft)',color:'var(--text-muted)',cursor:'not-allowed',border:'1px solid var(--border)',borderRadius:'var(--radius)'}}/>
@@ -756,7 +793,7 @@ const ProductForm = () => {
             </div>
 
             {/* Row 2: Product Group + (+) */}
-            <div style={{marginBottom:'.65rem'}}>
+            <div className="product-field product-field-group" style={{marginBottom:'.65rem'}}>
               <label style={labelStyle}>Product Group <Opt/></label>
               <GroupDropdown
                 groups={groups}
@@ -774,11 +811,12 @@ const ProductForm = () => {
                 disabled={isReadOnly}
                 error={errors.GroupId}/>
               {errors.GroupId && <div style={errStyle}>{errors.GroupId}</div>}
+              {groupTaxHint && <div style={{fontSize:'.72rem',color:'var(--text-muted)',marginTop:'.3rem'}}>{groupTaxHint}</div>}
             </div>
 
             {/* Row 3: Tamil Name | Unit (+) */}
-            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'.65rem',marginBottom:'.65rem'}}>
-              <div>
+            <div className="product-form-row product-form-tamil-unit" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'.65rem',marginBottom:'.65rem'}}>
+              <div className="product-field product-field-tamil">
                 <label style={labelStyle}>Product Name (Tamil) <Opt/></label>
                 <input name="ProductNameTamil" type="text" className={`form-control${errors.ProductNameTamil?' is-invalid':''}`}
                   aria-invalid={Boolean(errors.ProductNameTamil)}
@@ -787,7 +825,7 @@ const ProductForm = () => {
                   lang="ta" style={{...CI, width:'100%'}}/>
                 {errors.ProductNameTamil && <div style={errStyle}>{errors.ProductNameTamil}</div>}
               </div>
-              <div>
+              <div className="product-field product-field-unit">
                 <label style={labelStyle}>Unit <Req/></label>
                 <UnitDropdown
                   units={units}
@@ -811,9 +849,9 @@ const ProductForm = () => {
               </div>
             </div>
 
-            {/* Row 4: Quantity | Description */}
-            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'.65rem',marginBottom:'.65rem'}}>
-              <div>
+            {/* Row 4: Quantity */}
+            <div className="product-form-row product-form-quantity-description" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'.65rem',marginBottom:'.65rem'}}>
+              <div className="product-field product-field-quantity">
                 <label style={labelStyle}>Quantity <Opt/></label>
                 <input name="Quantity" type="number" min="0" step="1"
                   className={`form-control${errors.Quantity?' is-invalid':''}`}
@@ -822,38 +860,50 @@ const ProductForm = () => {
                   style={{...CI, width:'100%'}}/>
                 {errors.Quantity && <div style={errStyle}>{errors.Quantity}</div>}
               </div>
-              <div>
+              {false && (<div className="product-field product-field-description">
                 <label style={labelStyle}>Description <Opt/></label>
                 <textarea name="Description" className="form-control"
                   placeholder="Brief product description…"
                   value={form.Description} onChange={handleChange} disabled={isReadOnly}
                   style={{width:'100%',fontSize:'.82rem',resize:'none',height:34,padding:'.3rem .65rem'}}/>
                 {errors.Description && <div style={errStyle}>{errors.Description}</div>}
-              </div>
+              </div>)}
             </div>
 
-            {/* Row 5: HSN | GST % — only when company GST enabled */}
-            {isGSTRegistered && (
-              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'.65rem',marginBottom:'.65rem'}}>
-                <div>
+            <div className="professional-section-title product-section-tax">Pricing &amp; Tax Information</div>
+            {/* Row 5: HSN | GST % */}
+              <div className="product-form-row product-form-tax" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'.65rem',marginBottom:'.65rem'}}>
+                <div className="product-field product-field-hsn">
                   <label style={labelStyle}>HSN <Req/></label>
                   <input name="HSNCode" type="text" className={`form-control${errors.HSNCode?' is-invalid':''}`}
+                    aria-invalid={Boolean(errors.HSNCode)}
                     placeholder="e.g. 1905"
                     value={form.HSNCode} onChange={handleChange} disabled={isReadOnly}
                     style={{...CI, width:'100%'}}/>
                   {errors.HSNCode && <div style={errStyle}>{errors.HSNCode}</div>}
                 </div>
-                <div>
+                <div className="product-field product-field-gst">
                   <label style={labelStyle}>GST Percentage <Req/></label>
                   <input name="GSTPercent" type="number" min="0" max="100" step="1"
                     className={`form-control${errors.GSTPercent?' is-invalid':''}`}
+                    aria-invalid={Boolean(errors.GSTPercent)}
                     placeholder="0"
                     value={form.GSTPercent} onChange={handleChange} disabled={isReadOnly}
                     style={{...CI, width:'100%'}}/>
                   {errors.GSTPercent && <div style={errStyle}>{errors.GSTPercent}</div>}
                 </div>
               </div>
-            )}
+
+            <div className="professional-section-title product-section-additional">Additional Information</div>
+
+            <div className="product-field product-field-description">
+              <label style={labelStyle}>Description <Opt/></label>
+              <textarea name="Description" className="form-control"
+                placeholder="Brief product description"
+                value={form.Description} onChange={handleChange} disabled={isReadOnly}
+                style={{width:'100%',fontSize:'.82rem',resize:'vertical',minHeight:64,padding:'.5rem .65rem'}}/>
+              {errors.Description && <div style={errStyle}>{errors.Description}</div>}
+            </div>
 
             {/* Pricing hint */}
             {isEdit && isAdmin && (

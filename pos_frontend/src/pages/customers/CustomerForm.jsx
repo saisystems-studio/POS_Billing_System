@@ -415,35 +415,35 @@ const CustomerForm = () => {
   return (
     <Layout>
       {showPriceRef && <PriceRefPanel priceCodes={priceCodes} onClose={()=>setShowPriceRef(false)}/>}
-      <div className="page-header animate-in">
+      <div className="page-header customer-page-header professional-form-title-card animate-in">
         <div>
           <h2 style={{fontFamily:'var(--font-heading)',fontWeight:800}}>
-            {isEdit?(isAdmin?'Edit Customer':'View Customer'):'Add Customer'}
+            {isEdit?(isAdmin?'Edit Customer Details':'View Customer Details'):'Add Customer Details'}
           </h2>
           <p className="page-header-sub">
             {isEdit?(isAdmin?'Update customer details':'Viewing customer (read-only)'):'Register a new customer'}
           </p>
         </div>
+        <div className="professional-title-status">
+          <span>Status</span>
+          <Toggle value={form.IsActive} onChange={v => setForm(p=>({...p,IsActive:v}))} disabled={isReadOnly}/>
+        </div>
       </div>
       {apiError && <div className="alert alert-warning animate-in"><span>⚠️</span><span>{apiError}</span></div>}
       <form className="customer-form-page" onSubmit={submit} noValidate>
-        <div className="card animate-in animate-in-1" style={{width:'100%',maxWidth:1120,margin:'0 auto 1.25rem'}}>
+        <div className="card animate-in animate-in-1 professional-customer-form-card" style={{width:'100%',maxWidth:1120,margin:'0 auto 1.25rem'}}>
           <div className="card-body" style={{padding:'1.125rem 1.5rem'}}>
             {/* Header */}
             <div className="customer-section-header" style={{display:'flex',alignItems:'center',justifyContent:'space-between',
               marginBottom:'1rem',paddingBottom:'.75rem',borderBottom:'1px solid var(--divider)'}}>
               <div className="customer-status-control" style={{display:'flex',alignItems:'center',gap:'.5rem'}}>
                 <UserIcon/>
-                <span style={{fontWeight:800,fontSize:'.9rem',color:'var(--text-primary)',fontFamily:'var(--font-heading)'}}>Customer Details</span>
-              </div>
-              <div style={{display:'flex',alignItems:'center',gap:'.5rem'}}>
-                <span style={{fontSize:'.7rem',fontWeight:700,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:'.04em'}}>Status</span>
-                <Toggle value={form.IsActive} onChange={v => setForm(p=>({...p,IsActive:v}))} disabled={isReadOnly}/>
+                <span style={{fontWeight:800,fontSize:'.9rem',color:'var(--text-primary)',fontFamily:'var(--font-heading)'}}>Customer Information</span>
               </div>
             </div>
 
             {/* Basic Info */}
-            <div style={{marginBottom:'.5rem',fontSize:'.62rem',fontWeight:800,textTransform:'uppercase',
+            <div className="professional-section-title" style={{marginBottom:'.5rem',fontSize:'.62rem',fontWeight:800,textTransform:'uppercase',
               letterSpacing:'.09em',color:'var(--primary)',paddingBottom:'.3rem',borderBottom:'1px solid var(--divider)'}}>
               Basic Information
             </div>
@@ -502,7 +502,7 @@ const CustomerForm = () => {
             </div>
 
             {/* Location */}
-            <div style={{marginBottom:'.5rem',marginTop:'.75rem',fontSize:'.62rem',fontWeight:800,
+            <div className="professional-section-title" style={{marginBottom:'.5rem',marginTop:'.75rem',fontSize:'.62rem',fontWeight:800,
               textTransform:'uppercase',letterSpacing:'.09em',color:'var(--primary)',
               paddingBottom:'.3rem',borderBottom:'1px solid var(--divider)'}}>Location</div>
             <div className="customer-form-grid" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'.75rem',marginBottom:'.65rem',marginTop:'.65rem'}}>
@@ -531,7 +531,7 @@ const CustomerForm = () => {
             </div>
 
             {/* GST & Pricing */}
-            <div style={{marginBottom:'.5rem',marginTop:'.75rem',fontSize:'.62rem',fontWeight:800,
+            <div className="professional-section-title" style={{marginBottom:'.5rem',marginTop:'.75rem',fontSize:'.62rem',fontWeight:800,
               textTransform:'uppercase',letterSpacing:'.09em',color:'var(--primary)',
               paddingBottom:'.3rem',borderBottom:'1px solid var(--divider)'}}>GST & Pricing</div>
 

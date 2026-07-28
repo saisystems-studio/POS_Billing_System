@@ -43,6 +43,18 @@ const move = (target, direction) => {
   return true;
 };
 
+const validateBeforeForward = target => {
+  target.dispatchEvent(new FocusEvent('blur', { bubbles: true }));
+  const invalidByReact = target.getAttribute('aria-invalid') === 'true'
+    || target.classList.contains('is-invalid');
+  const invalidByBrowser = typeof target.checkValidity === 'function' && !target.checkValidity();
+  if (!invalidByReact && !invalidByBrowser) return true;
+  target.focus({ preventScroll: false });
+  target.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+  if (invalidByBrowser) target.reportValidity?.();
+  return false;
+};
+
 const setNativeValue = (element, value) => {
   const prototype = element instanceof HTMLSelectElement
     ? HTMLSelectElement.prototype
@@ -53,11 +65,20 @@ const setNativeValue = (element, value) => {
 };
 
 const clearField = target => {
-  if (target.matches('[data-escape-clear="true"]') || target.dataset.salesRate === 'true') {
+  if (target.matches('[data-escape-clear="true"], [data-sales-dropdown="true"]')
+    || target.dataset.salesRate === 'true') {
     target.dispatchEvent(new CustomEvent('pos-escape-clear-field', {
       bubbles: true,
       detail: { source: target },
     }));
+  }
+  if (target instanceof HTMLInputElement && ['checkbox', 'radio'].includes(target.type)) {
+    const descriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'checked');
+    descriptor?.set?.call(target, false);
+    target.dispatchEvent(new Event('input', { bubbles: true }));
+    target.dispatchEvent(new Event('change', { bubbles: true }));
+    requestAnimationFrame(() => target.focus?.());
+    return;
   }
   if ('value' in target && target.value !== '') {
     setNativeValue(target, '');
@@ -65,15 +86,6 @@ const clearField = target => {
     target.dispatchEvent(new Event('change', { bubbles: true }));
   }
   requestAnimationFrame(() => target.focus?.());
-};
-
-const isTextInput = target => target.matches('input:not([type="checkbox"]):not([type="radio"]), textarea');
-const hasPartialTextEdit = target => {
-  if (!isTextInput(target) || target instanceof HTMLInputElement && ['date', 'number'].includes(target.type)) return false;
-  const start = target.selectionStart;
-  const end = target.selectionEnd;
-  if (start == null || end == null) return false;
-  return (start !== end && !(start === 0 && end === target.value.length)) || start > 0;
 };
 
 const GlobalTextFieldShortcuts = () => {
@@ -106,9 +118,10 @@ const GlobalTextFieldShortcuts = () => {
       if (!isUsable(target)) return;
       const billingManaged = Boolean(target.closest('[data-billing-grid="true"], [data-billing-field="true"]'));
       const dropdownOpen = Boolean(document.querySelector('[data-sales-dropdown-open="true"]'));
+      const searchableManaged = target.matches('[role="combobox"], [data-escape-clear="true"], [data-sales-dropdown="true"]')
+        || Boolean(target.closest('[role="combobox"]'));
 
       if (event.key === 'Escape') {
-        if (target.closest('[role="listbox"]') || dropdownOpen) return;
         event.preventDefault();
         event.stopPropagation();
         clearField(target);
@@ -116,19 +129,23 @@ const GlobalTextFieldShortcuts = () => {
       }
 
       if (event.key === 'Enter' && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey) {
-        if (billingManaged || dropdownOpen || target.matches('textarea, input[type="checkbox"], input[type="radio"]')) return;
+        if (billingManaged || searchableManaged || dropdownOpen
+          || target.matches('input[type="checkbox"], input[type="radio"]')) return;
         event.preventDefault();
         event.stopPropagation();
-        if (!event.repeat) move(target, 1);
+        if (!event.repeat && validateBeforeForward(target)) move(target, 1);
         return;
       }
 
       if (event.key === 'Backspace' && !event.altKey && !event.ctrlKey && !event.metaKey) {
-        if (billingManaged || target.matches('textarea') && target.value !== '' || hasPartialTextEdit(target)) return;
+        const openSearchableDropdown = target.getAttribute('aria-expanded') === 'true'
+          || Boolean(target.closest('[role="combobox"][aria-expanded="true"]'))
+          || Boolean(document.querySelector('[role="listbox"]'));
+        if (billingManaged || dropdownOpen || openSearchableDropdown) return;
         event.preventDefault();
         event.stopPropagation();
         if ('value' in target && target.value !== '') clearField(target);
-        else move(target, -1);
+        requestAnimationFrame(() => move(target, -1));
       }
     };
 

@@ -317,7 +317,7 @@ class PriceCodeListView(generics.ListAPIView):
 # â”€â”€â”€ Products for billing â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class ProductsForBillingView(generics.ListAPIView):
-    serializer_class   = ProductPricePageSerializer
+    serializer_class   = ProductForBillingSerializer
     permission_classes = [IsAuthenticated]
     pagination_class   = None
 
@@ -340,8 +340,11 @@ class ProductsForBillingView(generics.ListAPIView):
         qs = (
             Product.objects
             .filter(IsActive=True)
+            .select_related('GroupId', 'UnitId')
             .only(
-                'id', 'ProductCode', 'ProductName',
+                'id', 'ProductCode', 'ProductName', 'ProductNameTamil',
+                'GroupId__GroupName', 'UnitId__UnitName', 'UnitId__UQC',
+                'Units', 'GSTPercent', 'HSNCode',
             )
         )
         if cursor:

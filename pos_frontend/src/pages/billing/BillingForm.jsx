@@ -249,7 +249,10 @@ const CustomerSearchDropdown = ({ customers, value, onChange, disabled, onNaviga
 /* ── PriceCodeDropdown (per-row, shown only for Random customers) ──
    Uses position:absolute inside its cell wrapper — never portals.
    Includes a sticky internal search input like the Customer dropdown. ── */
-const PriceCodeDropdown = ({ priceCodes, value, onChange, disabled, productData, rowKey, inputRef: extRef, onNext, onPrev }) => {
+const PriceCodeDropdown = ({
+  priceCodes, value, onChange, onEscapeClear, disabled, productData, rowKey,
+  inputRef: extRef, onNext, onPrev,
+}) => {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [hi, setHi] = useState(0);
@@ -258,13 +261,27 @@ const PriceCodeDropdown = ({ priceCodes, value, onChange, disabled, productData,
   const searchRef = useRef(null);
   const listRef  = useRef(null);
   const inputRef = extRef || useRef(null); // eslint-disable-line
+  const suppressNextOpenRef = useRef(false);
 
-  const sel = priceCodes.find(p => p.id === value);
+  const priceCodeOrder = { A: 1, B: 2, C: 3, D: 4, Retail: 5 };
+  const validPriceCodes = priceCodes
+    .filter(pc => pc?.id != null && Object.hasOwn(priceCodeOrder, pc?.PriceCodeName))
+    .sort((a, b) => priceCodeOrder[a.PriceCodeName] - priceCodeOrder[b.PriceCodeName]);
+  const manualRateOption = {
+    id: null,
+    PriceCodeName: 'Select price code',
+    DisplayLabel: 'Select price code',
+    isManualRate: true,
+  };
+  const navigablePriceCodes = [manualRateOption, ...validPriceCodes];
+  const sel = validPriceCodes.find(p => p.id === value);
 
   const label = pc => {
-    if (!productData) return pc.DisplayLabel;
+    if (pc.isManualRate) return pc.DisplayLabel;
+    const displayName = pc.PriceCodeName === 'Retail' ? 'Retail' : `Price ${pc.PriceCodeName}`;
+    if (!productData) return displayName;
     const tier = (productData.prices || []).find(p => p.PriceCodeID === pc.id);
-    return tier ? `${pc.DisplayLabel} — ₹${parseFloat(tier.ProductPrice).toFixed(2)}` : pc.DisplayLabel;
+    return tier ? `${displayName} — ₹${parseFloat(tier.ProductPrice).toFixed(2)}` : displayName;
   };
 
   /* Reset display when row key changes (row reused) */
@@ -288,23 +305,33 @@ const PriceCodeDropdown = ({ priceCodes, value, onChange, disabled, productData,
   }, [open]);
 
   const term = search.trim().toLowerCase();
-  const filtered = !term ? priceCodes : priceCodes.filter(pc =>
-    pc.PriceCodeName.toLowerCase().includes(term) ||
-    pc.DisplayLabel.toLowerCase().includes(term)
-  );
+  const filtered = !term ? navigablePriceCodes : navigablePriceCodes.filter(pc => (
+    pc.isManualRate
+      ? pc.DisplayLabel.toLowerCase().startsWith(term)
+      : pc.PriceCodeName.toLowerCase().includes(term)
+        || pc.DisplayLabel.toLowerCase().includes(term)
+  ));
 
   const pick = pc => {
-    onChange(pc.id);
+    onChange(pc.isManualRate ? null : pc.id);
     setOpen(false);
     setSearch('');
     setHi(0);
-    setTimeout(() => onNext?.(pc.id), 60);
+    setTimeout(() => onNext?.(pc.isManualRate ? null : pc.id), 60);
   };
 
   const openDrop = () => {
     if (disabled) return;
-    setHi(sel ? Math.max(0, priceCodes.indexOf(sel)) : 0);
+    setHi(sel ? Math.max(1, navigablePriceCodes.indexOf(sel)) : 0);
     setOpen(true);
+  };
+
+  const handleTriggerFocus = () => {
+    if (suppressNextOpenRef.current) {
+      suppressNextOpenRef.current = false;
+      return;
+    }
+    openDrop();
   };
 
   /* Keyboard on the trigger input (the display span/button) */
@@ -321,17 +348,38 @@ const PriceCodeDropdown = ({ priceCodes, value, onChange, disabled, productData,
       }
       return;
     }
-    if (e.key === 'ArrowDown' || e.key === ' ') {
-      e.preventDefault(); openDrop();
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (disabled) return;
+      setHi(e.key === 'ArrowUp' ? navigablePriceCodes.length - 1 : (navigablePriceCodes.length ? 0 : -1));
+      setOpen(true);
+      return;
+    }
+    if (e.key === ' ') {
+      e.preventDefault();
+      openDrop();
     }
   };
 
   /* Keyboard on the internal search input */
   const handleSearchKey = e => {
     if (e.key === 'Escape') { setOpen(false); setSearch(''); inputRef.current?.focus(); return; }
-    if (e.key === 'Backspace' && !search) { e.preventDefault(); setOpen(false); onPrev?.(); return; }
-    if (e.key === 'ArrowDown') { e.preventDefault(); setHi(h => Math.min(h + 1, filtered.length - 1)); }
-    else if (e.key === 'ArrowUp') { e.preventDefault(); setHi(h => Math.max(h - 1, 0)); }
+    if (e.key === 'Backspace' && !search) {
+      e.preventDefault();
+      if (value) onChange(null);
+      setOpen(false);
+      setHi(-1);
+      onPrev?.();
+      return;
+    }
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setHi(h => filtered.length ? (h < 0 ? 0 : Math.min(h + 1, filtered.length - 1)) : -1);
+    }
+    else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setHi(h => filtered.length ? (h < 0 ? filtered.length - 1 : Math.max(h - 1, 0)) : -1);
+    }
     else if (e.key === 'Enter') { e.preventDefault(); if (filtered[hi]) pick(filtered[hi]); }
   };
 
@@ -343,12 +391,12 @@ const PriceCodeDropdown = ({ priceCodes, value, onChange, disabled, productData,
       setOpen(false);
       setSearch('');
       setHi(0);
-      if (value) onChange(null);
+      if (value) (onEscapeClear || onChange)(null);
       setTimeout(() => el.focus(), 0);
     };
     el.addEventListener('pos-escape-clear-field', clear);
     return () => el.removeEventListener('pos-escape-clear-field', clear);
-  }, [disabled, inputRef, onChange, value]);
+  }, [disabled, inputRef, onChange, onEscapeClear, value]);
 
   useEffect(() => {
     const el = wrapRef.current;
@@ -358,12 +406,13 @@ const PriceCodeDropdown = ({ priceCodes, value, onChange, disabled, productData,
       setOpen(false);
       setSearch('');
       setHi(0);
-      if (value) onChange(null);
+      if (value) (onEscapeClear || onChange)(null);
+      suppressNextOpenRef.current = true;
       setTimeout(() => inputRef.current?.focus(), 0);
     };
     el.addEventListener('pos-escape-clear-field', clear);
     return () => el.removeEventListener('pos-escape-clear-field', clear);
-  }, [disabled, inputRef, onChange, value]);
+  }, [disabled, inputRef, onChange, onEscapeClear, value]);
 
   useEffect(() => {
     if (open && hi >= 0 && listRef.current) {
@@ -379,13 +428,14 @@ const PriceCodeDropdown = ({ priceCodes, value, onChange, disabled, productData,
       {/* Trigger — shows selected label or placeholder */}
       <button
         ref={inputRef}
+        className="searchable-dropdown-trigger"
         type="button"
         data-sales-dropdown="true"
         data-escape-clear="true"
         data-billing-field="true"
         disabled={disabled}
         onClick={openDrop}
-        onFocus={openDrop}
+        onFocus={handleTriggerFocus}
         onKeyDown={handleTriggerKey}
         style={{
           width:'100%', height:26, padding:'.18rem .45rem', fontSize:'.8rem',
@@ -435,30 +485,19 @@ const PriceCodeDropdown = ({ priceCodes, value, onChange, disabled, productData,
           </div>
           {/* Options list — scrollable */}
           <ul ref={listRef} style={{margin:0, padding:0, listStyle:'none', maxHeight:190, overflowY:'auto', flex:1}}>
-            <li onMouseDown={e => {
-              e.preventDefault();
-              onChange(null);
-              setOpen(false);
-              setSearch('');
-              setHi(0);
-              setTimeout(() => onNext?.(null), 60);
-            }} style={{padding:'.38rem .65rem',color:'var(--text-muted)',fontSize:'.82rem',
-              cursor:'pointer',borderBottom:'1px solid var(--divider)'}}>
-              Select price code
-            </li>
             {filtered.length === 0 ? (
               <li style={{padding:'.45rem .65rem', color:'var(--text-muted)', fontSize:'.78rem', fontStyle:'italic'}}>
                 No price codes available for this product
               </li>
             ) : filtered.map((pc, i) => (
-              <li key={pc.id}
+              <li key={pc.isManualRate ? 'manual-rate' : pc.id}
                 onMouseDown={e => { e.preventDefault(); pick(pc); }}
                 onMouseEnter={() => setHi(i)}
                 style={{
                   padding:'.38rem .65rem', fontSize:'.82rem', cursor:'pointer',
-                  background: value === pc.id ? BRAND_LIGHT : hi === i ? '#f5f0eb' : 'transparent',
-                  fontWeight: value === pc.id ? 700 : 400,
-                  color: value === pc.id ? BRAND : 'var(--text-primary)',
+                  background: (!value && pc.isManualRate) || value === pc.id ? BRAND_LIGHT : hi === i ? '#f5f0eb' : 'transparent',
+                  fontWeight: ((!value && pc.isManualRate) || value === pc.id) ? 700 : 400,
+                  color: ((!value && pc.isManualRate) || value === pc.id) ? BRAND : 'var(--text-primary)',
                   borderBottom: i < filtered.length - 1 ? '1px solid var(--divider)' : 'none',
                   transition:'background .1s',
                 }}>
@@ -482,7 +521,7 @@ const PRODUCT_VISIBLE_OVERSCAN = 4;
 const ProductSearchDropdown = ({
   products, value, onChange, disabled, inputRef: extRef, onNext, onPrev,
   onSearch, onRetry, onLoadMore, loading, loadingMore, hasMore, error,
-  moveToActionsOnEmptyEnter = false,
+  moveToActionsOnEmptyEnter = false, onBackspaceClear,
 }) => {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -493,6 +532,7 @@ const ProductSearchDropdown = ({
   const searchRef = useRef(null);
   const listRef   = useRef(null);
   const inputRef  = extRef || useRef(null); // eslint-disable-line
+  const suppressNextOpenRef = useRef(false);
 
   const sel = products.find(p => p.id === value);
   const displayText = sel ? sel.ProductName : '';
@@ -526,9 +566,13 @@ const ProductSearchDropdown = ({
   const term = search.trim().toLowerCase();
   const filtered = !term ? products : products.filter(p =>
     (p.ProductName || '').toLowerCase().includes(term) ||
+    (p.ProductNameTamil || '').toLowerCase().includes(term) ||
     (p.ProductCode || '').toLowerCase().includes(term) ||
+    (p.GroupName || '').toLowerCase().includes(term) ||
     (p.Barcode || '').toLowerCase().includes(term) ||
-    (p.Units || '').toLowerCase().includes(term)
+    (p.Units || '').toLowerCase().includes(term) ||
+    (p.UnitName || '').toLowerCase().includes(term) ||
+    (p.UnitCode || '').toLowerCase().includes(term)
   );
   const visibleCount = Math.ceil(PRODUCT_DROPDOWN_HEIGHT / PRODUCT_OPTION_HEIGHT) + PRODUCT_VISIBLE_OVERSCAN;
   const visibleStart = Math.max(0, Math.floor(scrollTop / PRODUCT_OPTION_HEIGHT) - PRODUCT_VISIBLE_OVERSCAN);
@@ -556,6 +600,14 @@ const ProductSearchDropdown = ({
     setOpen(true);
   };
 
+  const handleTriggerFocus = () => {
+    if (suppressNextOpenRef.current) {
+      suppressNextOpenRef.current = false;
+      return;
+    }
+    openDrop();
+  };
+
   /* Keyboard on trigger (the display button) */
   const handleTriggerKey = e => {
     if (e.key === 'Escape') { setOpen(false); return; }
@@ -579,7 +631,17 @@ const ProductSearchDropdown = ({
   /* Keyboard on the internal search input */
   const handleSearchKey = e => {
     if (e.key === 'Escape') { setOpen(false); setSearch(''); inputRef.current?.focus(); return; }
-    if (e.key === 'Backspace' && !search) { e.preventDefault(); setOpen(false); onPrev?.(); return; }
+    if (e.key === 'Backspace' && !search) {
+      e.preventDefault();
+      e.stopPropagation();
+      setOpen(false);
+      setSearch('');
+      setHi(0);
+      setScrollTop(0);
+      onBackspaceClear?.();
+      onPrev?.();
+      return;
+    }
     if (e.key === 'ArrowDown') { e.preventDefault(); setHi(h => Math.min(h + 1, filtered.length - 1)); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); setHi(h => Math.max(h - 1, 0)); }
     else if (e.key === 'Enter') {
@@ -618,6 +680,7 @@ const ProductSearchDropdown = ({
       setHi(0);
       setScrollTop(0);
       if (value) onChange(null);
+      suppressNextOpenRef.current = true;
       setTimeout(() => inputRef.current?.focus(), 0);
     };
     el.addEventListener('pos-escape-clear-field', clear);
@@ -648,13 +711,14 @@ const ProductSearchDropdown = ({
       {/* Trigger button — shows selected product or placeholder */}
       <button
         ref={inputRef}
+        className="searchable-dropdown-trigger"
         type="button"
         data-sales-dropdown="true"
         data-escape-clear="true"
         data-billing-field="true"
         disabled={disabled}
         onClick={openDrop}
-        onFocus={openDrop}
+        onFocus={handleTriggerFocus}
         onKeyDown={handleTriggerKey}
         style={{
           width:'100%', minWidth:0, maxWidth:'100%', height:26,
@@ -687,7 +751,7 @@ const ProductSearchDropdown = ({
 
       {/* Absolute dropdown — anchored to this cell */}
       {open && (
-        <div className={menuClassName} data-sales-dropdown-open="true" style={{...mobileMenuStyle,
+        <div className={`${menuClassName} particulars-dropdown-menu`} data-sales-dropdown-open="true" style={{...mobileMenuStyle,
           position:'absolute', top:'calc(100% + 3px)', left:0,
           width:'max-content', minWidth:'100%', maxWidth:380,
           zIndex:99999, background:'#fff', border:`1.5px solid ${BRAND}`,
@@ -713,21 +777,12 @@ const ProductSearchDropdown = ({
             />
           </div>
           {/* Options list — scrollable */}
-          <ul ref={listRef} onScroll={handleListScroll} style={{margin:0, padding:0, listStyle:'none', height:listHeight, maxHeight:PRODUCT_DROPDOWN_HEIGHT, overflowY:filtered.length > 0 ? 'auto' : 'hidden', flex:'0 0 auto'}}>
-            <li onMouseDown={e => {
-              e.preventDefault();
-              onChange(null);
-              setOpen(false);
-              setSearch('');
-              setHi(0);
-              setScrollTop(0);
-              setTimeout(() => inputRef.current?.focus(), 0);
-            }} style={{height:PRODUCT_OPTION_HEIGHT,boxSizing:'border-box',padding:'.38rem .65rem',
-              display:'flex',alignItems:'center',color:'var(--text-muted)',fontSize:'.82rem',
-              cursor:'pointer',borderBottom:'1px solid var(--divider)'}}>
-              Select particulars
-            </li>
-            {error && filtered.length === 0 ? (
+          <ul ref={listRef} onScroll={handleListScroll} style={{margin:0, padding:0, listStyle:'none', height:listHeight, maxHeight:PRODUCT_DROPDOWN_HEIGHT, overflowY:'auto', overflowX:'hidden', overscrollBehavior:'contain', flex:'0 0 auto'}}>
+            {loading && term ? (
+              <li style={{padding:'.45rem .65rem', color:'var(--text-muted)', fontSize:'.78rem', fontStyle:'italic'}}>
+                Searching products...
+              </li>
+            ) : error && filtered.length === 0 ? (
               <li style={{padding:'.45rem .65rem', color:'var(--danger)', fontSize:'.78rem', fontWeight:600}}>
                 <span>{error}</span>
                 <button
@@ -743,7 +798,7 @@ const ProductSearchDropdown = ({
               </li>
             ) : filtered.length === 0 ? (
               <li style={{padding:'.45rem .65rem', color:'var(--text-muted)', fontSize:'.78rem', fontStyle:'italic'}}>
-                No matching products
+                No matching products found
               </li>
             ) : (
               <>
@@ -765,10 +820,12 @@ const ProductSearchDropdown = ({
                   display:'flex', alignItems:'center', gap:'.35rem', flexWrap:'nowrap',
                   overflow:'hidden',
                 }}>
-                <span style={{color:'var(--text-primary)', fontWeight:600, whiteSpace:'nowrap'}}>{p.ProductName}</span>
-                {p.Units && (
-                  <span style={{fontSize:'.72rem',color:'var(--text-muted)',whiteSpace:'nowrap',flexShrink:0}}>
-                    {p.Units}
+                <span title={p.ProductName} style={{color:'var(--text-primary)', fontWeight:600, whiteSpace:'nowrap',
+                  overflow:'hidden',textOverflow:'ellipsis',minWidth:0,flex:'1 1 auto'}}>{p.ProductName}</span>
+                {(p.ProductCode || p.GroupName || p.Units) && (
+                  <span style={{fontSize:'.72rem',color:'var(--text-muted)',whiteSpace:'nowrap',
+                    overflow:'hidden',textOverflow:'ellipsis',maxWidth:'45%',flexShrink:1}}>
+                    {[p.ProductCode, p.GroupName || p.Units].filter(Boolean).join(' · ')}
                   </span>
                 )}
               </li>
@@ -918,6 +975,7 @@ const BillingForm = () => {
   const [editBillNo, setEditBillNo] = useState('');
   const [apiError,   setApiError]   = useState('');
   const [rowErrors,  setRowErrors]  = useState({}); // { rowIdx: 'message' }
+  const [rateErrors, setRateErrors] = useState({}); // { rowIdx: Rate field message }
   const [showDel,    setShowDel]    = useState(false);
   const [deleting,   setDeleting]   = useState(false);
   const [billingPage, setBillingPage] = useState(1);
@@ -931,10 +989,7 @@ const BillingForm = () => {
   const cancelBtnRef = useRef(null);
   const saveBtnRef = useRef(null);
   const custRef    = useRef(null);
-  /* track a pending new-row auto-add to avoid double-adding */
-  const addRowTimer = useRef(null);
   const saveInFlightRef = useRef(false);
-  const shortcutSavePendingRef = useRef(false);
   const initialCustomerFocusRef = useRef(false);
   const lastEnterRef = useRef({ time: 0, target: null });
   const customersReqRef = useRef(0);
@@ -1132,7 +1187,7 @@ const BillingForm = () => {
         return;
       }
       if (isFixed) {
-        if (!isRowComplete(current)) {
+        if (!isRowComplete(current) && !current?._onSpotProduct) {
           setRowErrors(prev => ({ ...prev, [rowIdx]: 'A valid fixed price is required.' }));
           focusCell(rowIdx, COL_QTY);
           return;
@@ -1303,7 +1358,34 @@ const BillingForm = () => {
     if (!draft && !selectedCustomer) return;
 
     restoredDraftRef.current = true;
-    if (draft?.rows?.length) setRows(draft.rows);
+    const createdProduct = location.state?.createdProduct;
+    if (draft?.rows?.length) {
+      const restoredRows = draft.rows.map(row => ({ ...row }));
+      if (createdProduct?.id) {
+        const requestedIndex = Number.isInteger(draft.productTargetRow) ? draft.productTargetRow : -1;
+        const targetIndex = requestedIndex >= 0 && requestedIndex < restoredRows.length
+          ? requestedIndex
+          : Math.max(0, restoredRows.findIndex(isBlankRow));
+        const fixedPriceCodeID = draft.priceConfig?.PriceCodeType === 'Fixed'
+          ? draft.priceConfig?.FixedPriceCodeID || null
+          : restoredRows[targetIndex]?.PriceCodeID || null;
+        const fixedRate = fixedPriceCodeID ? getRateForCode(createdProduct, fixedPriceCodeID) : '';
+        restoredRows[targetIndex] = {
+          ...restoredRows[targetIndex],
+          ProductID: createdProduct.id,
+          productData: createdProduct,
+          PriceCodeID: fixedPriceCodeID,
+          rate: fixedRate,
+          changeableRate: '',
+          isRateEditable: !fixedRate,
+          GSTPercent: createdProduct.GSTPercent > 0 ? String(createdProduct.GSTPercent) : '',
+          _onSpotProduct: true,
+          _inactive: false,
+        };
+        setTimeout(() => focusCell(targetIndex, COL_QTY), 120);
+      }
+      setRows(restoredRows);
+    }
     if (draft?.priceConfig) setPriceConfig(draft.priceConfig);
     if (draft?.savedBillNo) setSavedBillNo(draft.savedBillNo);
     if (selectedCustomer) {
@@ -1323,10 +1405,17 @@ const BillingForm = () => {
     }
 
     if (location.state?.productCreated) {
+      if (createdProduct?.id) {
+        setProducts(prev => (
+          prev.some(product => product.id === createdProduct.id)
+            ? prev.map(product => product.id === createdProduct.id ? createdProduct : product)
+            : [createdProduct, ...prev]
+        ));
+      }
       loadProducts('', { force: true });
     }
     navigate(location.pathname, { replace: true });
-  }, [loadProducts, location.pathname, location.state, navigate]);
+  }, [focusCell, loadProducts, location.pathname, location.state, navigate]);
 
   /* ── Load existing bill for edit mode ── */
   useEffect(() => {
@@ -1410,19 +1499,6 @@ const BillingForm = () => {
     setLoading(false);
   }, [products, isEdit]); // eslint-disable-line
 
-  /* ── Auto-expand: add new empty row when last row is complete ── */
-  useEffect(() => {
-    if (isReadOnly) return;
-    const last = rows[rows.length - 1];
-    if (!last || !isRowComplete(last)) return;
-    // Short debounce avoids duplicate additions while rate/price state settles.
-    clearTimeout(addRowTimer.current);
-    addRowTimer.current = setTimeout(() => {
-      setRows(prev => keepSingleReadyBlankRow(prev));
-    }, 120);
-    return () => clearTimeout(addRowTimer.current);
-  }, [rows.map(r => `${r.ProductID}|${r.Qty}|${r.PriceCodeID}|${r.rate}|${r.changeableRate}`).join(','), keepSingleReadyBlankRow, isReadOnly]); // eslint-disable-line
-
   /* ── Keep cellRefs array sized ── */
   useEffect(() => {
     const activeRowKeys = new Set(rows.map(row => row._key));
@@ -1466,11 +1542,12 @@ const BillingForm = () => {
     requestAnimationFrame(() => focusCell(0, COL_PRODUCT));
   }, [customers, focusCell]);
 
-  const buildSalesDraft = useCallback(() => ({
+  const buildSalesDraft = useCallback((productTargetRow = null) => ({
     customerID,
     priceConfig,
     rows,
     savedBillNo,
+    productTargetRow,
   }), [customerID, priceConfig, rows, savedBillNo]);
 
   const goToAddCustomer = useCallback(() => {
@@ -1485,14 +1562,18 @@ const BillingForm = () => {
   const goToAddProduct = useCallback((event) => {
     event?.preventDefault();
     event?.stopPropagation();
+    const focusedRow = Number.parseInt(document.activeElement?.dataset?.rowIndex, 10);
+    const productTargetRow = Number.isInteger(focusedRow)
+      ? focusedRow
+      : Math.max(0, rows.findIndex(isBlankRow));
     navigate('/products/new', {
       state: {
         returnToSales: true,
-        salesDraft: buildSalesDraft(),
+        salesDraft: buildSalesDraft(productTargetRow),
         returnPath: location.pathname,
       },
     });
-  }, [buildSalesDraft, location.pathname, navigate]);
+  }, [buildSalesDraft, location.pathname, navigate, rows]);
 
   /* ── Row mutations ── */
   const updateRow = useCallback((idx, patch) => {
@@ -1510,9 +1591,13 @@ const BillingForm = () => {
       const rowIdx = Number.parseInt(target.dataset.rowIndex, 10);
       if (!Number.isInteger(rowIdx)) return;
       updateRow(rowIdx, {
-        rate: '',
         changeableRate: '',
         isRateEditable: true,
+      });
+      setRateErrors(prev => {
+        const next = { ...prev };
+        delete next[rowIdx];
+        return next;
       });
       setTimeout(() => target.focus(), 0);
     };
@@ -1769,34 +1854,6 @@ const BillingForm = () => {
 
   }, [buildPayload, isEdit, id, navigate, toast, focusCell, saving, isReadOnly]);
 
-  useEffect(() => {
-    const handler = e => {
-      if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || String(e.key).toLowerCase() !== 's') return;
-      if (isReadOnly) return;
-      const target = e.target;
-      const insideBillingForm = pageRef.current?.contains(target)
-        || target?.closest?.('[data-sales-dropdown-open="true"]')
-        || target?.closest?.('[data-sales-dropdown="true"]');
-      if (!insideBillingForm) return;
-      e.preventDefault();
-      e.stopPropagation();
-      if (e.repeat || saving || saveInFlightRef.current || shortcutSavePendingRef.current) return;
-
-      shortcutSavePendingRef.current = true;
-      const active = document.activeElement;
-      if (active && pageRef.current?.contains(active) && typeof active.blur === 'function') {
-        active.blur();
-      }
-
-      setTimeout(() => {
-        shortcutSavePendingRef.current = false;
-        if (!saveInFlightRef.current) handleSave();
-      }, 0);
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [handleSave, saving, isReadOnly]);
-
   const canSave = !saving && customerID && totals.rowCount > 0;
 
   const handleFormKeyDown = useCallback((e) => {
@@ -1833,18 +1890,24 @@ const BillingForm = () => {
       });
       if (col) {
         if (e.key === 'Backspace') {
-          const row = rows[rowIdx];
-          const isEmpty =
-            (col === COL_PRODUCT && !row?.ProductID) ||
-            (col === COL_QTY && (row?.Qty === '' || row?.Qty == null)) ||
-            (col === COL_PRICE_CODE && !row?.PriceCodeID) ||
-            (col === COL_RATE &&
-              (row?.changeableRate === '' || row?.changeableRate == null) &&
-              (row?.rate === '' || row?.rate == null));
-          if (!isEmpty) return;
           e.preventDefault();
           e.stopPropagation();
-          navigateCell(rowIdx, col, -1);
+          if (col === COL_PRODUCT) {
+            updateRow(rowIdx, {
+              ProductID: null, productData: null, PriceCodeID: null,
+              rate: '', changeableRate: '', isRateEditable: false,
+              GSTPercent: '',
+            });
+          } else if (col === COL_QTY) {
+            updateRow(rowIdx, { Qty: '' });
+          } else if (col === COL_PRICE_CODE) {
+            updateRow(rowIdx, {
+              PriceCodeID: null, rate: '', changeableRate: '', isRateEditable: true,
+            });
+          } else if (col === COL_RATE) {
+            updateRow(rowIdx, { changeableRate: '', isRateEditable: true });
+          }
+          setTimeout(() => navigateCell(rowIdx, col, -1), 0);
           return;
         }
         e.preventDefault();
@@ -1978,6 +2041,7 @@ const BillingForm = () => {
           {savedBillNo && !isEdit && (
             <span className="sales-compact-saved">Last saved: {savedBillNo}</span>
           )}
+          <AutoFitColumns tableRef={autoFitTableRef}/>
         </div>
 
         
@@ -1996,7 +2060,6 @@ const BillingForm = () => {
           boxShadow:'0 1px 6px rgba(0,0,0,.07)'}}>
 
           {/* Table wrapper — overflow must stay visible so absolute dropdowns aren't clipped */}
-          <div className="auto-fit-columns-toolbar"><AutoFitColumns tableRef={autoFitTableRef}/></div>
           <div className="sales-entry-table-wrap" style={{width:'100%'}}>
             <table ref={autoFitTableRef} className="sales-entry-table" style={{width:'100%',borderCollapse:'collapse',tableLayout:'fixed'}}>
               <colgroup>
@@ -2040,6 +2103,7 @@ const BillingForm = () => {
                   const lineAmt       = qty * effectiveRate;
                   const hasChangeable = row.changeableRate && parseFloat(row.changeableRate) > 0;
                   const rowErr        = rowErrors[idx];
+                  const rateErr       = rateErrors[idx];
                   const isCompleted   = isRowComplete(row);
                   const isFinalBlankRow = idx === rows.length - 1 && isBlankRow(row);
 
@@ -2077,6 +2141,17 @@ const BillingForm = () => {
                           }}
                           onPrev={() => {
                             navigateCell(idx, COL_PRODUCT, -1);
+                          }}
+                          onBackspaceClear={() => {
+                            updateRow(idx, {
+                              ProductID: null,
+                              productData: null,
+                              PriceCodeID: null,
+                              rate: '',
+                              changeableRate: '',
+                              isRateEditable: false,
+                              GSTPercent: '',
+                            });
                           }}
                           onSearch={loadProducts}
                           onLoadMore={loadMoreProducts}
@@ -2144,6 +2219,7 @@ const BillingForm = () => {
                             priceCodes={priceCodes}
                             value={row.PriceCodeID}
                             onChange={pcid => handlePriceCodeChange(idx, pcid)}
+                            onEscapeClear={() => updateRow(idx, { PriceCodeID: null })}
                             disabled={saving || isReadOnly || !row.ProductID}
                             productData={row.productData}
                             rowKey={row._key}
@@ -2175,24 +2251,64 @@ const BillingForm = () => {
                           className="bf-input"
                           type="number" min="0" step="0.01"
                           tabIndex={-1}
-                          value={row.changeableRate || row.rate}
+                          value={row.isRateEditable ? row.changeableRate : (row.changeableRate || row.rate)}
                           disabled={saving || isReadOnly || !row.ProductID}
-                          readOnly={!row.isRateEditable}
                           placeholder="0.00"
                           ref={el => setCellRef(row._key, COL_RATE, el)}
                           data-sales-rate="true"
                           data-billing-field="true"
                           data-row-index={idx}
-                          onChange={e => updateRow(idx, { changeableRate: e.target.value, isRateEditable: true })}
+                          aria-invalid={Boolean(rateErr)}
+                          onChange={e => {
+                            updateRow(idx, { changeableRate: e.target.value, isRateEditable: true });
+                            if (rateErr) {
+                              setRateErrors(prev => {
+                                const next = { ...prev };
+                                delete next[idx];
+                                return next;
+                              });
+                            }
+                          }}
                           onKeyDown={e => {
                             if (e.key === 'Enter') {
                               e.preventDefault();
                               e.stopPropagation();
                               if (e.repeat) return;
-                              const ratePatch = row.isRateEditable
-                                ? { changeableRate: e.currentTarget.value, isRateEditable: true }
-                                : null;
-                              if (ratePatch) updateRow(idx, ratePatch);
+                              const rawRate = e.currentTarget.value.trim();
+                              if (!rawRate) {
+                                setRateErrors(prev => ({ ...prev, [idx]: 'Rate is required.' }));
+                                e.currentTarget.focus();
+                                return;
+                              }
+                              const enteredRate = Number(rawRate);
+                              if (!Number.isFinite(enteredRate)) {
+                                setRateErrors(prev => ({ ...prev, [idx]: 'Please enter a valid rate.' }));
+                                e.currentTarget.focus();
+                                return;
+                              }
+                              if (enteredRate < 0) {
+                                setRateErrors(prev => ({ ...prev, [idx]: 'Rate cannot be negative.' }));
+                                e.currentTarget.focus();
+                                return;
+                              }
+                              if (enteredRate === 0) {
+                                setRateErrors(prev => ({ ...prev, [idx]: 'Please enter a valid rate.' }));
+                                e.currentTarget.focus();
+                                return;
+                              }
+                              const baseRate = Number(row.rate);
+                              const matchesBase = Number.isFinite(baseRate)
+                                && enteredRate.toFixed(2) === baseRate.toFixed(2);
+                              const ratePatch = {
+                                changeableRate: matchesBase ? '' : enteredRate.toFixed(2),
+                                isRateEditable: false,
+                              };
+                              updateRow(idx, ratePatch);
+                              setRateErrors(prev => {
+                                const next = { ...prev };
+                                delete next[idx];
+                                return next;
+                              });
                               completeRowCreateNextAndFocusProduct(idx, ratePatch);
                             } else if (e.key === 'Backspace' && !e.currentTarget.value) {
                               e.preventDefault();
@@ -2207,6 +2323,11 @@ const BillingForm = () => {
                           }}
                           title={hasChangeable && row.rate ? `Price code rate: ₹${parseFloat(row.rate).toFixed(2)}` : undefined}
                         />
+                        {rateErr && (
+                          <div style={{fontSize:'.68rem',color:'var(--danger)',fontWeight:500,marginTop:2}}>
+                            {rateErr}
+                          </div>
+                        )}
                       </td>
 
                       {/* Amount */}
@@ -2218,10 +2339,11 @@ const BillingForm = () => {
                           if (e.key === 'Enter') {
                             e.preventDefault();
                             e.stopPropagation();
+                            if (e.repeat) return;
                             completeRowCreateNextAndFocusProduct(idx);
                           } else if (e.key === 'Backspace') {
                             e.preventDefault();
-                            focusCell(idx, isFixed ? COL_QTY : COL_PRICE_CODE);
+                            focusCell(idx, COL_RATE);
                           }
                         }}
                         style={{textAlign:'right',outline:'none'}}>
@@ -2311,6 +2433,7 @@ const BillingForm = () => {
           {!isReadOnly && <button
             ref={saveBtnRef}
             type="button"
+            data-save-action="true"
             tabIndex={-1}
             onClick={handleSave}
             disabled={!canSave}
