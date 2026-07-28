@@ -12,6 +12,7 @@ import { useToast } from '../../context/ToastContext';
 import { useAuth } from '../../context/AuthContext';
 import useResponsivePageSize from '../../hooks/useResponsivePageSize';
 import useMobileDropdownPlacement from '../../hooks/useMobileDropdownPlacement';
+import AutoFitColumns from '../../components/AutoFitColumns';
 
 const BRAND   = '#8A5125';
 const BRAND_LIGHT = '#fdf3eb';
@@ -883,6 +884,7 @@ const COL_AMOUNT     = 'amount';
    BillingForm — main component
 ═══════════════════════════════════════════════════════════ */
 const BillingForm = () => {
+  const autoFitTableRef = useRef(null);
   const navigate    = useNavigate();
   const location    = useLocation();
   const { id }      = useParams();
@@ -1994,8 +1996,9 @@ const BillingForm = () => {
           boxShadow:'0 1px 6px rgba(0,0,0,.07)'}}>
 
           {/* Table wrapper — overflow must stay visible so absolute dropdowns aren't clipped */}
+          <div className="auto-fit-columns-toolbar"><AutoFitColumns tableRef={autoFitTableRef}/></div>
           <div className="sales-entry-table-wrap" style={{width:'100%'}}>
-            <table className="sales-entry-table" style={{width:'100%',borderCollapse:'collapse',tableLayout:'fixed'}}>
+            <table ref={autoFitTableRef} className="sales-entry-table" style={{width:'100%',borderCollapse:'collapse',tableLayout:'fixed'}}>
               <colgroup>
                 <col className="sales-entry-col-sno" />
                 <col className="sales-entry-col-particulars" />

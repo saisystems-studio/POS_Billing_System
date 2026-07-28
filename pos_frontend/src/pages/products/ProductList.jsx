@@ -17,6 +17,7 @@ import {
   isTimeoutImport,
 } from '../../utils/excelImportFeedback';
 import useResponsivePageSize from '../../hooks/useResponsivePageSize';
+import AutoFitColumns from '../../components/AutoFitColumns';
 
 const TrashIcon  = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{width:14,height:14}}><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>;
 const ViewIcon   = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{width:14,height:14}}><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>;
@@ -123,6 +124,7 @@ const ProductDetailsDrawer = ({ product, onClose }) => {
   );
 };
 const ProductList = () => {
+  const autoFitTableRef = useRef(null);
   const navigate = useNavigate();
   const { isAdmin } = useAuth();
   const toast = useToast();
@@ -728,6 +730,7 @@ const ProductList = () => {
           <button className="btn btn-primary btn-sm" onClick={() => navigate('/products/new')}>
             <PlusIcon/> Add Product
           </button>
+          <AutoFitColumns tableRef={autoFitTableRef}/>
           <input ref={fileInputRef} type="file" accept=".xlsx" style={{display:'none'}} onChange={handleImportFile}/>
         </div>
 
@@ -778,7 +781,7 @@ const ProductList = () => {
           <div className="card-body">
                 <div ref={containerRef} className="product-table-zone" tabIndex={0} onKeyDown={handleListKeyDown} onFocus={handleTableFocus}>
                   <div className={`desktop-table-view table-wrapper table-wrapper-scroll${!loading && products.length===0 ? ' is-empty' : ''}`}>
-                    <table className="product-list-table">
+                    <table ref={autoFitTableRef} className="product-list-table">
                       <colgroup>
                         <col className="col-checkbox" />
                         <col className="col-sno" />

@@ -172,7 +172,10 @@ class ProductWithPricesCreateView(APIView):
     permission_classes = [IsAdminOrReadCreate]
 
     def post(self, request, *args, **kwargs):
-        serializer = ProductWithPricesCreateSerializer(data=request.data)
+        serializer = ProductWithPricesCreateSerializer(
+            data=request.data,
+            context={'request': request},
+        )
         serializer.is_valid(raise_exception=True)
         data = dict(serializer.validated_data)
         user = request.user
@@ -202,7 +205,10 @@ class ProductWithPricesCreateView(APIView):
             product = Product.objects.get(pk=pk)
         except Product.DoesNotExist:
             return Response({'detail': 'Product not found.'}, status=status.HTTP_404_NOT_FOUND)
-        serializer = ProductWithPricesCreateSerializer(data=request.data)
+        serializer = ProductWithPricesCreateSerializer(
+            data=request.data,
+            context={'request': request, 'product_id': product.pk},
+        )
         serializer.is_valid(raise_exception=True)
         data = dict(serializer.validated_data)
         unit = data.get('UnitId')

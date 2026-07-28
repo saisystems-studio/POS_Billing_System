@@ -10,6 +10,7 @@ import productGroupService from '../../services/productGroupService';
 import billingService from '../../services/billingService';
 import { formatBackendImportError, getImportToast, isCanceledImport, isTimeoutImport } from '../../utils/excelImportFeedback';
 import useResponsivePageSize from '../../hooks/useResponsivePageSize';
+import AutoFitColumns from '../../components/AutoFitColumns';
 
 const BRAND = '#8A5125';
 const PRICE_CODE_ORDERING = 'id';
@@ -31,6 +32,7 @@ const ImportSpin = () => (
 );
 
 const ProductPriceList = () => {
+  const autoFitTableRef = useRef(null);
   const navigate = useNavigate();
   const { isAdmin, user, username } = useAuth();
   const toast = useToast();
@@ -511,6 +513,7 @@ const ProductPriceList = () => {
           </button>
           <button className="btn btn-outline-secondary btn-sm" onClick={downloadImportTemplate}>Download Template</button>
           <button className="btn btn-outline-secondary btn-sm" onClick={handleExportCsv}>Export</button>
+          <AutoFitColumns tableRef={autoFitTableRef}/>
           <input ref={fileInputRef} type="file" accept=".xlsx" style={{display:'none'}} onChange={handleImportFile}/>
         </div>
       </div>
@@ -528,6 +531,7 @@ const ProductPriceList = () => {
           <p className="price-scroll-hint">Swipe left or right to view Price A, B, C, D and Retail.</p>
           <div className="price-code-table-scroll">
           <SplitTable
+            tableRef={autoFitTableRef}
             className="table table-compact price-code-table"
             tableProps={{ style: { borderCollapse: 'collapse', tableLayout: 'fixed', width: '100%' } }}
             empty={products.length===0}

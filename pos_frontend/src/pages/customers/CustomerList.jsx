@@ -14,6 +14,7 @@ const TrashIcon = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColo
 const MoreIcon  = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{width:14,height:14}}><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg>;
 const CloseIcon = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{width:14,height:14}}><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>;
 import SharedSearchField from '../../components/SharedSearchField';
+import AutoFitColumns from '../../components/AutoFitColumns';
 const PlusIcon  = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{width:14,height:14}}><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>;
 const ViewIcon  = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{width:14,height:14}}><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>;
 
@@ -99,6 +100,7 @@ const ViewMoreModal = ({ customer, onClose }) => {
 };
 
 const CustomerList = () => {
+  const autoFitTableRef = useRef(null);
   const navigate = useNavigate();
   const { isAdmin } = useAuth();
   const [loading,   setLoading]   = useState(true);
@@ -560,6 +562,7 @@ const CustomerList = () => {
           <button className="btn btn-primary btn-sm add-customer-button" onClick={() => navigate('/customers/new')}>
             <PlusIcon/> Add Customer
           </button>
+          <AutoFitColumns tableRef={autoFitTableRef}/>
           <input ref={fileInputRef} type="file" accept=".csv,.xlsx,.xls" style={{display:'none'}} onChange={handleImportFile}/>
         </div>
 
@@ -610,6 +613,7 @@ const CustomerList = () => {
               <div ref={containerRef} className="list-keyboard-zone" tabIndex={0} onKeyDown={handleListKeyDown}>
               <div className="desktop-table-view">
               <SplitTable
+                tableRef={autoFitTableRef}
                 className={`table table-compact customer-table customer-responsive-table compact-list-table data-table${isAdmin?' is-admin':''}${multiSelectActive?' has-selection':''}`}
                 tableProps={{ style: { tableLayout: 'fixed', width: '100%' } }}
                 colgroup={(

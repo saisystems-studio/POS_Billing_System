@@ -8,6 +8,7 @@ import productGroupService from '../../services/productGroupService';
 import { fetchCachedPage, getCachedPage, makePageKey, prefetchCachedPage } from '../../services/pageCache';
 import { useAuth } from '../../context/AuthContext';
 import useResponsivePageSize from '../../hooks/useResponsivePageSize';
+import AutoFitColumns from '../../components/AutoFitColumns';
 
 /* ─── Icons ─── */
 const SearchIcon = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{width:15,height:15}}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>;
@@ -16,6 +17,7 @@ const PlusIcon   = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentCol
 const formatDate = (s) => s ? new Date(s).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
 
 const ProductGroupList = () => {
+  const autoFitTableRef = useRef(null);
   const navigate    = useNavigate();
   const { isAdmin } = useAuth();
 
@@ -183,6 +185,7 @@ const ProductGroupList = () => {
           <button className="btn btn-primary btn-sm" onClick={() => navigate('/products/groups/new')}>
             <PlusIcon /> Add Group
           </button>
+          <AutoFitColumns tableRef={autoFitTableRef}/>
         </div>
       </div>
 
@@ -212,6 +215,7 @@ const ProductGroupList = () => {
           <>
               <div ref={containerRef} className="list-keyboard-zone" tabIndex={0} onKeyDown={handleListKeyDown}>
               <SplitTable
+                tableRef={autoFitTableRef}
                 className="table table-compact product-group-table"
                 tableProps={{ style: { tableLayout: 'auto' } }}
                 empty={groups.length===0}

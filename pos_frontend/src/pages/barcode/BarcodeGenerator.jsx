@@ -22,14 +22,6 @@ const ResetIcon = () => (
   </svg>
 );
 
-const BarcodeIcon = () => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
-    strokeLinecap="round" strokeLinejoin="round" style={{ width: 16, height: 16 }}>
-    <path d="M4 7v10"/><path d="M7 7v10"/><path d="M11 7v10"/>
-    <path d="M15 7v10"/><path d="M20 7v10"/><path d="M17 7v10"/>
-  </svg>
-);
-
 const SearchIcon = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
     strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -503,18 +495,9 @@ const BarcodeGenerator = () => {
         </div>
       )}
 
-      <form className="barcode-generator-form" onSubmit={submit} onKeyDown={handleFormKeyDown} noValidate>
-        <div className="pf-card barcode-generator-card animate-in animate-in-1">
-          <div className="pf-card-header">
-            <span className="pf-card-header-icon"><BarcodeIcon /></span>
-            <div>
-              <span className="pf-card-header-title">Barcode Details</span>
-              <div className="pf-card-header-sub barcode-card-sub">
-                Select a product and configure its barcode pricing
-              </div>
-            </div>
-          </div>
-          <div className="pf-card-body">
+      <form className="barcode-generator-form professional-form-layout" onSubmit={submit} onKeyDown={handleFormKeyDown} noValidate>
+        <div className="pf-card barcode-generator-card professional-form-container animate-in animate-in-1">
+          <div className="pf-card-body professional-form-content">
             <div className="barcode-grid barcode-grid-product">
               <SearchDropdown
                 id="barcode-product"
@@ -655,9 +638,9 @@ const BarcodeGenerator = () => {
               <span>MRP must be greater than or equal to Selling Price.</span>
             </div>
 
-            <div className="barcode-card-actions">
+            <div className="barcode-card-actions professional-form-action-footer">
               <button type="button" className="btn btn-outline-secondary" onClick={resetForm} disabled={saving}>
-                <ResetIcon /> Reset
+                <ResetIcon /> Cancel
               </button>
               <button id="barcode-save" ref={saveRef} type="submit" className="btn btn-primary" disabled={saving}>
                 {saving ? <>{spinEl} Saving...</> : <><SaveIcon /> Save &amp; Generate</>}

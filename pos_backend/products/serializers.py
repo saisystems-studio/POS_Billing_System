@@ -6,6 +6,17 @@ from .models import ProductGroup, Product, ProductPriceDetails, PriceCodeList, P
 
 PRICE_NAMES = [c[0] for c in PRICE_NAME_CHOICES]
 
+def _normalized_product_name(value):
+    return ' '.join((value or '').split()).casefold()
+
+
+def _has_product_duplicate(name, group, exclude_id=None):
+    queryset = Product.objects.filter(GroupId=group).only('id', 'ProductName')
+    if exclude_id:
+        queryset = queryset.exclude(pk=exclude_id)
+    normalized = _normalized_product_name(name)
+    return any(_normalized_product_name(item.ProductName) == normalized for item in queryset)
+
 
 # ─── ProductGroup ────────────────────────────────────────────────────────────
 
@@ -114,18 +125,16 @@ class ProductSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['id', 'ProductCode', 'CreatedOn', 'UpdatedAt', 'CreatedBy',
                             'CreatedByUsername', 'GroupName', 'UnitCode', 'UnitName']
-        extra_kwargs = {'HSNCode': {'required': True, 'allow_blank': False, 'allow_null': False}}
+        extra_kwargs = {'HSNCode': {'required': False, 'allow_blank': True, 'allow_null': True}}
 
     def validate_ProductName(self, value):
         if not value or not value.strip():
-            raise serializers.ValidationError("ProductName cannot be empty.")
-        return value.strip()
+            raise serializers.ValidationError("Product name is required.")
+        return ' '.join(value.split())
 
     def validate_HSNCode(self, value):
         val = (value or '').strip()
-        if not val:
-            raise serializers.ValidationError("HSN Code is required.")
-        return val
+        return val or None
 
     def validate_Units(self, value):
         if not value or not value.strip():
@@ -141,6 +150,15 @@ class ProductSerializer(serializers.ModelSerializer):
         if value is not None and (value < 0 or value > 100):
             raise serializers.ValidationError("GST Percent must be between 0 and 100.")
         return value
+
+    def validate(self, attrs):
+        name = attrs.get('ProductName', getattr(self.instance, 'ProductName', ''))
+        group = attrs.get('GroupId', getattr(self.instance, 'GroupId', None))
+        if _has_product_duplicate(name, group, self.instance.pk if self.instance else None):
+            raise serializers.ValidationError({
+                'ProductName': 'Another product with this name already exists in the selected group.'
+            })
+        return attrs
 
     def create(self, validated_data):
         validated_data['CreatedBy'] = self.context['request'].user
@@ -179,7 +197,7 @@ class ProductWithPricesCreateSerializer(serializers.Serializer):
                            required=False, allow_null=True)
     ProductName      = serializers.CharField(max_length=200)
     ProductNameTamil = serializers.CharField(max_length=200, required=False, allow_null=True, allow_blank=True)
-    HSNCode          = serializers.CharField(max_length=20, required=True, allow_null=False, allow_blank=False)
+    HSNCode          = serializers.CharField(max_length=20, required=False, allow_null=True, allow_blank=True)
     GSTPercent       = serializers.IntegerField(required=False, default=0, min_value=0, max_value=100)
     Quantity         = serializers.IntegerField(required=False, allow_null=True, min_value=0)
     Units            = serializers.CharField(max_length=100)
@@ -189,8 +207,8 @@ class ProductWithPricesCreateSerializer(serializers.Serializer):
 
     def validate_ProductName(self, value):
         if not value or not value.strip():
-            raise serializers.ValidationError("ProductName cannot be empty.")
-        return value.strip()
+            raise serializers.ValidationError("Product name is required.")
+        return ' '.join(value.split())
 
     def validate_Units(self, value):
         if not value or not value.strip():
@@ -199,9 +217,15 @@ class ProductWithPricesCreateSerializer(serializers.Serializer):
 
     def validate_HSNCode(self, value):
         val = (value or '').strip()
-        if not val:
-            raise serializers.ValidationError("HSN Code is required.")
-        return val
+        return val or None
+
+    def validate(self, attrs):
+        product_id = self.context.get('product_id')
+        if _has_product_duplicate(attrs['ProductName'], attrs.get('GroupId'), product_id):
+            raise serializers.ValidationError({
+                'ProductName': 'Another product with this name already exists in the selected group.'
+            })
+        return attrs
 
 
 # ─── Product for billing (all price tiers + GST) ─────────────────────────────

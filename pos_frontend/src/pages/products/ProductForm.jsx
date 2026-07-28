@@ -10,6 +10,7 @@ import { useCompany } from '../../context/CompanyContext';
 import { useToast } from '../../context/ToastContext';
 import api from '../../services/api';
 import useMobileDropdownPlacement from '../../hooks/useMobileDropdownPlacement';
+import { clearPageCache } from '../../services/pageCache';
 
 const BRAND = '#8A5125';
 const Req   = () => <span style={{color:'var(--danger)',marginLeft:2}}>*</span>;
@@ -471,6 +472,44 @@ const EMPTY_FORM = {
   Quantity:'', Units:'', UnitId:'', Description:'', IsActive:true,
 };
 
+const PRODUCT_NAME_MAX = 200;
+const TAMIL_NAME_MAX = 200;
+const HSN_MAX = 20;
+const UNIT_MAX = 100;
+const API_FIELD_MAP = {
+  ProductName: 'ProductName',
+  product_name: 'ProductName',
+  ProductNameTamil: 'ProductNameTamil',
+  product_name_tamil: 'ProductNameTamil',
+  GroupId: 'GroupId',
+  group: 'GroupId',
+  UnitId: 'Units',
+  unit: 'Units',
+  Units: 'Units',
+  Quantity: 'Quantity',
+  Description: 'Description',
+  HSNCode: 'HSNCode',
+  GSTPercent: 'GSTPercent',
+  IsActive: 'IsActive',
+};
+
+const friendlyProductError = (field, raw) => {
+  const message = Array.isArray(raw) ? raw[0] : raw;
+  const text = typeof message === 'object'
+    ? Object.values(message || {}).flat().join(' ')
+    : String(message || '');
+  if (/no more than 200 characters|max_length.*200/i.test(text)) {
+    return field === 'ProductNameTamil'
+      ? `Tamil product name must not exceed ${TAMIL_NAME_MAX} characters.`
+      : `Product name must not exceed ${PRODUCT_NAME_MAX} characters.`;
+  }
+  if (/does not exist|invalid pk|incorrect type/i.test(text)) {
+    if (field === 'GroupId') return 'Please select a valid product group.';
+    if (field === 'Units') return 'The selected unit is no longer available. Please choose another unit.';
+  }
+  return text || 'This value is invalid.';
+};
+
 const ProductForm = () => {
   const navigate    = useNavigate();
   const location    = useLocation();
@@ -498,6 +537,7 @@ const ProductForm = () => {
   const [createdInfo, setCreatedInfo] = useState(null);
   const [groups,      setGroups]      = useState([]);
   const [units,       setUnits]       = useState([]);
+  const saveInFlightRef = useRef(false);
 
   /* ── fetch groups + units once ── */
   useEffect(() => {
@@ -566,8 +606,15 @@ const ProductForm = () => {
   const validate = () => {
     const e = {};
     if (!form.ProductName.trim()) e.ProductName = 'Product name is required.';
+    else if (form.ProductName.trim().length > PRODUCT_NAME_MAX)
+      e.ProductName = `Product name must not exceed ${PRODUCT_NAME_MAX} characters.`;
+    if (form.ProductNameTamil.trim().length > TAMIL_NAME_MAX)
+      e.ProductNameTamil = `Tamil product name must not exceed ${TAMIL_NAME_MAX} characters.`;
     if (!form.UnitId) e.Units = 'Select a Unit/UQC from the list.';
+    else if (form.Units.trim().length > UNIT_MAX) e.Units = `Unit must not exceed ${UNIT_MAX} characters.`;
     if (isGSTRegistered && !form.HSNCode.trim()) e.HSNCode = 'HSN Code is required.';
+    else if (form.HSNCode.trim().length > HSN_MAX)
+      e.HSNCode = `HSN Code must not exceed ${HSN_MAX} characters.`;
     if (form.Quantity !== '' && (isNaN(parseInt(form.Quantity, 10)) || parseInt(form.Quantity, 10) < 0))
       e.Quantity = 'Enter a valid non-negative number.';
     if (isGSTRegistered) {
@@ -579,8 +626,19 @@ const ProductForm = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    const formElement = e.currentTarget;
+    if (saveInFlightRef.current || saving) return;
     const errs = validate();
-    if (Object.keys(errs).length) { setErrors(errs); return; }
+    if (Object.keys(errs).length) {
+      setErrors(errs);
+      setApiError('Please correct the highlighted field.');
+      requestAnimationFrame(() => {
+        const first = formElement?.querySelector('[aria-invalid="true"], .is-invalid');
+        first?.focus();
+      });
+      return;
+    }
+    saveInFlightRef.current = true;
     setSaving(true); setApiError('');
     const payload = {
       ProductName:      form.ProductName.trim(),
@@ -596,7 +654,22 @@ const ProductForm = () => {
     if (form.Quantity !== '') payload.Quantity = parseInt(form.Quantity, 10);
     try {
       if (isEdit) {
-        await productService.updateProductWithPrices(id, payload);
+        const updated = await productService.updateProductWithPrices(id, payload);
+        setProductCode(updated.ProductCode || productCode);
+        setForm(current => ({
+          ...current,
+          GroupId: updated.GroupId ?? '',
+          ProductName: updated.ProductName ?? current.ProductName,
+          ProductNameTamil: updated.ProductNameTamil ?? '',
+          HSNCode: updated.HSNCode ?? '',
+          GSTPercent: String(updated.GSTPercent ?? 0),
+          Quantity: updated.Quantity == null ? '' : String(updated.Quantity),
+          Units: updated.UnitName || updated.Units || current.Units,
+          UnitId: updated.UnitId ?? current.UnitId,
+          Description: updated.Description ?? '',
+          IsActive: updated.IsActive ?? current.IsActive,
+        }));
+        clearPageCache('products');
         toast.success('Updated', 'Product updated successfully.');
         setTimeout(() => navigate('/products'), 1500);
       } else {
@@ -615,10 +688,23 @@ const ProductForm = () => {
       const data = err.response?.data;
       if (data && typeof data === 'object') {
         const fe = {};
-        Object.entries(data).forEach(([k, v]) => { fe[k] = Array.isArray(v) ? v[0] : v; });
-        setErrors(fe); setApiError('Please fix the errors below.');
+        const nonField = [];
+        Object.entries(data).forEach(([key, value]) => {
+          const field = API_FIELD_MAP[key];
+          if (field) fe[field] = friendlyProductError(field, value);
+          else nonField.push(friendlyProductError(key, value));
+        });
+        setErrors(fe);
+        setApiError(nonField[0] || (Object.keys(fe).length ? 'Please correct the highlighted field.' : 'The product could not be updated. Please try again.'));
+        requestAnimationFrame(() => {
+          const first = document.querySelector('form [aria-invalid="true"], form .is-invalid');
+          first?.focus();
+        });
       } else { setApiError(data?.detail || 'Failed to save.'); }
-    } finally { setSaving(false); }
+    } finally {
+      saveInFlightRef.current = false;
+      setSaving(false);
+    }
   };
 
   if (loading) return <Layout><LoadingSpinner message="Loading product…"/></Layout>;
@@ -626,7 +712,7 @@ const ProductForm = () => {
 
   return (
     <Layout>
-      <div className="page-header animate-in">
+      <div className="page-header product-page-header animate-in">
         <div>
           <h2 style={{fontFamily:'var(--font-heading)',fontWeight:800}}>
             {isEdit ? (isAdmin ? 'Edit Product' : 'View Product') : 'Add Product'}
@@ -643,9 +729,9 @@ const ProductForm = () => {
 
       {apiError && <div className="alert alert-warning animate-in"><span>⚠️</span><span>{apiError}</span></div>}
 
-      <form onSubmit={handleSubmit} noValidate>
-        <div className="card animate-in animate-in-1" style={{marginBottom:'1rem'}}>
-          <div className="card-body" style={{padding:'.875rem 1.25rem'}}>
+      <form className="professional-form-layout product-professional-form" onSubmit={handleSubmit} noValidate>
+        <div className="card animate-in animate-in-1 professional-form-container product-form-container" style={{marginBottom:'1rem'}}>
+          <div className="card-body professional-form-content" style={{padding:'.875rem 1.25rem'}}>
 
             {/* Row 1: Product Name | Product Code */}
             <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'.65rem',marginBottom:'.65rem'}}>
@@ -653,10 +739,14 @@ const ProductForm = () => {
                 <label style={labelStyle}>Product Name (Eng) <Req/></label>
                 <input name="ProductName" type="text"
                   className={`form-control${errors.ProductName?' is-invalid':''}`}
+                  aria-invalid={Boolean(errors.ProductName)}
                   placeholder="Enter English name"
                   value={form.ProductName} onChange={handleChange} disabled={isReadOnly}
                   style={{...CI, width:'100%'}}/>
                 {errors.ProductName && <div style={errStyle}>{errors.ProductName}</div>}
+                <div style={{fontSize:'.65rem',color:form.ProductName.length>PRODUCT_NAME_MAX?'var(--danger)':'var(--text-muted)',textAlign:'right'}}>
+                  {form.ProductName.length}/{PRODUCT_NAME_MAX}
+                </div>
               </div>
               <div>
                 <label style={labelStyle}>Product Code</label>
@@ -690,10 +780,12 @@ const ProductForm = () => {
             <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'.65rem',marginBottom:'.65rem'}}>
               <div>
                 <label style={labelStyle}>Product Name (Tamil) <Opt/></label>
-                <input name="ProductNameTamil" type="text" className="form-control"
+                <input name="ProductNameTamil" type="text" className={`form-control${errors.ProductNameTamil?' is-invalid':''}`}
+                  aria-invalid={Boolean(errors.ProductNameTamil)}
                   placeholder="தமிழில் பொருளின் பெயர்"
                   value={form.ProductNameTamil} onChange={handleChange} disabled={isReadOnly}
                   lang="ta" style={{...CI, width:'100%'}}/>
+                {errors.ProductNameTamil && <div style={errStyle}>{errors.ProductNameTamil}</div>}
               </div>
               <div>
                 <label style={labelStyle}>Unit <Req/></label>
@@ -736,6 +828,7 @@ const ProductForm = () => {
                   placeholder="Brief product description…"
                   value={form.Description} onChange={handleChange} disabled={isReadOnly}
                   style={{width:'100%',fontSize:'.82rem',resize:'none',height:34,padding:'.3rem .65rem'}}/>
+                {errors.Description && <div style={errStyle}>{errors.Description}</div>}
               </div>
             </div>
 
@@ -780,7 +873,7 @@ const ProductForm = () => {
           </div>
         </div>
 
-        <div className="form-actions-bar animate-in">
+        <div className="form-actions-bar professional-form-action-footer animate-in">
           <button type="button" className="btn btn-outline-secondary"
             onClick={() => quickSalesReturn ? returnToSalesForm() : navigate('/products')} disabled={saving}>
             Cancel
