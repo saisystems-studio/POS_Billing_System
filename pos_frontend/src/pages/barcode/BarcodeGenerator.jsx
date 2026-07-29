@@ -39,6 +39,8 @@ const spinEl = (
 );
 
 const decimalPattern = /^\d+(\.\d{0,2})?$/;
+const PRODUCT_OPTION_HEIGHT = 34;
+const PRODUCT_MENU_HEIGHT = 220;
 
 const SearchDropdown = ({
   id,
@@ -62,25 +64,49 @@ const SearchDropdown = ({
   loading,
   loadError,
   onNext,
+  selectedId,
+  selectedName,
 }) => {
+  const getProductName = opt => getLabel(opt) || opt?.label || '';
   const [open, setOpen] = useState(false);
   const [hi, setHi] = useState(-1);
+  const [scrollTop, setScrollTop] = useState(0);
   const wrapRef = useRef(null);
-  const optionRefs = useRef([]);
+  const menuRef = useRef(null);
+  const openRef = useRef(false);
   const hiRef = useRef(-1);
   const filteredRef = useRef([]);
 
-  const filtered = useMemo(() => {
+  const filteredProducts = useMemo(() => {
     const term = query.trim().toLowerCase();
-    if (!term) return options;
-    return options.filter(opt => {
-      const labelText = getLabel(opt).toLowerCase();
-      const metaText = (getMeta?.(opt) || '').toLowerCase();
-      return labelText.includes(term) || metaText.includes(term);
+    const filtered = term
+      ? options.filter(opt => getProductName(opt).toLowerCase().includes(term))
+      : options;
+    return [...filtered].sort((a, b) => {
+      const aName = getProductName(a).toLowerCase();
+      const bName = getProductName(b).toLowerCase();
+      const aExact = aName === term;
+      const bExact = bName === term;
+      if (aExact !== bExact) return aExact ? -1 : 1;
+      const aStarts = aName.startsWith(term);
+      const bStarts = bName.startsWith(term);
+      if (aStarts !== bStarts) return aStarts ? -1 : 1;
+      return aName.localeCompare(bName);
     });
-  }, [getLabel, getMeta, options, query]);
+  }, [getLabel, options, query]);
   hiRef.current = hi;
-  filteredRef.current = filtered;
+  filteredRef.current = filteredProducts;
+  const visibleStart = Math.max(0, Math.floor(scrollTop / PRODUCT_OPTION_HEIGHT) - 3);
+  const visibleEnd = Math.min(
+    filteredProducts.length,
+    visibleStart + Math.ceil(PRODUCT_MENU_HEIGHT / PRODUCT_OPTION_HEIGHT) + 6,
+  );
+  const visibleOptions = filteredProducts.slice(visibleStart, visibleEnd);
+
+  const setDropdownOpen = next => {
+    openRef.current = next;
+    setOpen(next);
+  };
 
   const setHighlightedIndex = next => {
     hiRef.current = next;
@@ -90,7 +116,7 @@ const SearchDropdown = ({
   useEffect(() => {
     if (!open) return;
     const close = e => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false);
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) setDropdownOpen(false);
     };
     document.addEventListener('mousedown', close);
     return () => document.removeEventListener('mousedown', close);
@@ -99,17 +125,11 @@ const SearchDropdown = ({
   useEffect(() => {
     if (!open) return;
     setHi(current => {
-      const next = Math.min(current, Math.max(filtered.length - 1, 0));
+      const next = Math.min(current, Math.max(filteredProducts.length - 1, 0));
       hiRef.current = next;
       return next;
     });
-  }, [filtered.length, open]);
-
-  // Keep the committed product label visible after the menu closes or focus
-  // moves away; query text is only temporary while the user is searching.
-  useEffect(() => {
-    if (!open && value) setQuery(getLabel(value));
-  }, [getLabel, open, setQuery, value]);
+  }, [filteredProducts.length, open]);
 
   useEffect(() => {
     if (!open) return;
@@ -120,9 +140,26 @@ const SearchDropdown = ({
   }, [open, query, onSearch]);
 
   useEffect(() => {
-    if (!open) return;
-    optionRefs.current[hi]?.scrollIntoView({ block: 'nearest' });
+    if (!open || hi < 0 || !menuRef.current) return;
+    const optionTop = hi * PRODUCT_OPTION_HEIGHT;
+    const optionBottom = optionTop + PRODUCT_OPTION_HEIGHT;
+    const currentTop = menuRef.current.scrollTop;
+    const currentBottom = currentTop + PRODUCT_MENU_HEIGHT;
+    const nextTop = optionTop < currentTop
+      ? optionTop
+      : optionBottom > currentBottom
+        ? optionBottom - PRODUCT_MENU_HEIGHT
+        : currentTop;
+    if (nextTop !== currentTop) {
+      menuRef.current.scrollTop = nextTop;
+      setScrollTop(nextTop);
+    }
   }, [hi, open]);
+
+  useEffect(() => {
+    setScrollTop(0);
+    if (menuRef.current) menuRef.current.scrollTop = 0;
+  }, [open, query]);
 
   useEffect(() => {
     const el = inputRef?.current;
@@ -131,18 +168,18 @@ const SearchDropdown = ({
       if (disabled) return;
       setQuery('');
       onClear?.();
-      setOpen(false);
-      setHighlightedIndex(0);
+      setDropdownOpen(false);
+      setHighlightedIndex(-1);
       setTimeout(() => el.focus(), 0);
     };
     el.addEventListener('pos-escape-clear-field', clear);
     return () => el.removeEventListener('pos-escape-clear-field', clear);
   }, [disabled, inputRef, onClear, setQuery]);
 
-  const handleProductSelect = (opt, { moveFocus = true } = {}) => {
-    onSelect(opt, { moveFocus });
-    setQuery(getLabel(opt));
-    setOpen(false);
+  const handleProductSelect = opt => {
+    // Mouse and keyboard selection both use the same committed parent state.
+    onSelect(opt);
+    setDropdownOpen(false);
     setHighlightedIndex(-1);
   };
 
@@ -150,33 +187,39 @@ const SearchDropdown = ({
     if (e.key === 'ArrowDown') {
       e.preventDefault();
       e.stopPropagation();
-      setOpen(true);
-      setHighlightedIndex(Math.min(hiRef.current + 1, Math.max(filteredRef.current.length - 1, 0)));
+      setDropdownOpen(true);
+      const lastIndex = filteredRef.current.length - 1;
+      if (lastIndex >= 0) {
+        setHighlightedIndex(hiRef.current < lastIndex ? hiRef.current + 1 : 0);
+      }
       return;
     }
     if (e.key === 'ArrowUp') {
       e.preventDefault();
       e.stopPropagation();
-      setOpen(true);
-      setHighlightedIndex(Math.max(hiRef.current - 1, 0));
+      setDropdownOpen(true);
+      const lastIndex = filteredRef.current.length - 1;
+      if (lastIndex >= 0) {
+        setHighlightedIndex(hiRef.current > 0 ? hiRef.current - 1 : lastIndex);
+      }
       return;
     }
     if (e.key === 'Enter') {
-      if (open) {
+      const highlightedOption = openRef.current && hiRef.current >= 0
+        ? filteredRef.current[hiRef.current]
+        : null;
+      if (highlightedOption) {
         e.preventDefault();
         e.stopPropagation();
-        const highlightedOption = hiRef.current >= 0
-          ? filteredRef.current[hiRef.current]
-          : null;
-        if (highlightedOption) {
-          handleProductSelect(highlightedOption, { moveFocus: false });
-          return;
-        }
-        setOpen(false);
-        setHighlightedIndex(-1);
+        handleProductSelect(highlightedOption);
         return;
       }
-      if (value) {
+      if (openRef.current) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+      if (selectedId != null && selectedName) {
         e.preventDefault();
         e.stopPropagation();
         onNext?.();
@@ -186,7 +229,10 @@ const SearchDropdown = ({
     if (e.key === 'Escape') {
       e.preventDefault();
       e.stopPropagation();
-      setOpen(false);
+      setDropdownOpen(false);
+      setHighlightedIndex(-1);
+      setQuery('');
+      onClear?.();
       return;
     }
   };
@@ -202,21 +248,26 @@ const SearchDropdown = ({
           id={id}
           ref={inputRef}
           type="text"
+          data-sales-dropdown="true"
           className={`pf-input barcode-input${leftIcon ? ' barcode-input-with-icon' : ''}${error ? ' pf-input--error' : ''}`}
           placeholder={placeholder}
           value={query}
           disabled={disabled}
           autoComplete="off"
-          onFocus={() => { setOpen(true); setHighlightedIndex(-1); }}
+          onFocus={() => { setDropdownOpen(true); setHighlightedIndex(-1); }}
           onBlur={() => setTimeout(() => {
-            if (!wrapRef.current?.contains(document.activeElement)) setOpen(false);
+            if (wrapRef.current?.contains(document.activeElement)) return;
+            setDropdownOpen(false);
+            const selected = options.find(opt => String(opt.id) === String(selectedId));
+            if (selected) setQuery(getProductName(selected));
+            else if (query.trim()) setQuery('');
           }, 0)}
           onChange={e => {
             const next = e.target.value;
             setQuery(next);
-            if (value && next !== getLabel(value)) onClear?.();
-            setOpen(true);
-            setHighlightedIndex(-1);
+            if (selectedId != null && next !== getProductName(options.find(opt => String(opt.id) === String(selectedId)))) onClear?.();
+            setDropdownOpen(true);
+            setHighlightedIndex(0);
           }}
           onKeyDown={handleKeyDown}
         />
@@ -225,47 +276,59 @@ const SearchDropdown = ({
         </span>
       </div>
       {open && !disabled && (
-        <div className="shared-dropdown-menu" style={{
+        <div
+          ref={menuRef}
+          data-sales-dropdown-open="true"
+          onScroll={e => setScrollTop(e.currentTarget.scrollTop)}
+          className="shared-dropdown-menu" style={{
           position: 'absolute', zIndex: 40, top: 'calc(100% + 4px)', left: 0, right: 0,
           background: 'var(--card-bg)', border: '1.5px solid var(--primary)',
           borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-lg)',
-          maxHeight: 220, overflowY: 'auto',
+          maxHeight: PRODUCT_MENU_HEIGHT, overflowY: 'auto',
         }}>
-          {loading && filtered.length === 0 ? (
+          {loading && filteredProducts.length === 0 ? (
             <div style={{ padding: '.55rem .7rem', fontSize: '.78rem', color: 'var(--text-muted)' }}>
               Loading products...
             </div>
-          ) : loadError && filtered.length === 0 ? (
+          ) : loadError && filteredProducts.length === 0 ? (
             <div style={{ padding: '.55rem .7rem', fontSize: '.78rem', color: 'var(--danger)', fontWeight: 600 }}>
               {loadError}
             </div>
-          ) : filtered.length === 0 ? (
+          ) : filteredProducts.length === 0 ? (
             <div style={{ padding: '.55rem .7rem', fontSize: '.78rem', color: 'var(--text-muted)' }}>
               {emptyText}
             </div>
-          ) : filtered.map((opt, idx) => {
-            const selected = value && opt.id === value.id;
-            const focused = hi === idx;
-            return (
-              <button
-                className="shared-dropdown-option"
-                key={opt.id}
-                ref={el => { optionRefs.current[idx] = el; }}
-                type="button"
-                onMouseDown={e => { e.preventDefault(); handleProductSelect(opt); }}
-                onMouseEnter={() => setHighlightedIndex(idx)}
-                style={{
-                  width: '100%', border: 0, textAlign: 'left',
-                  padding: '.48rem .7rem', cursor: 'pointer',
-                  background: selected ? 'var(--primary-light)' : focused ? 'var(--scale-100)' : 'transparent',
-                  color: selected || focused ? 'var(--primary-dark)' : 'var(--text-primary)',
-                  display: 'flex', flexDirection: 'column', gap: 2,
-                }}>
-                <span style={{ fontSize: '.84rem', fontWeight: 700 }}>{getLabel(opt)}</span>
-                {getMeta && <span style={{ fontSize: '.72rem', color: 'var(--text-muted)' }}>{getMeta(opt)}</span>}
-              </button>
-            );
-          })}
+          ) : (
+            <div
+              style={{ position: 'relative', height: filteredProducts.length * PRODUCT_OPTION_HEIGHT }}
+            >
+              {visibleOptions.map((opt, offset) => {
+                const idx = visibleStart + offset;
+                const optionId = opt.id;
+                const selected = selectedId != null && String(optionId) === String(selectedId);
+                const focused = hi === idx;
+                return (
+                  <button
+                    className="shared-dropdown-option"
+                    key={opt.id}
+                    type="button"
+                    onMouseDown={e => { e.preventDefault(); handleProductSelect(opt); }}
+                    onMouseEnter={() => setHighlightedIndex(idx)}
+                    style={{
+                      position: 'absolute', top: idx * PRODUCT_OPTION_HEIGHT, left: 0, right: 0,
+                      height: PRODUCT_OPTION_HEIGHT, width: '100%', border: 0, textAlign: 'left',
+                      padding: '.48rem .7rem', cursor: 'pointer', boxSizing: 'border-box',
+                      background: selected ? 'var(--primary-light)' : focused ? 'var(--scale-100)' : 'transparent',
+                      color: selected || focused ? 'var(--primary-dark)' : 'var(--text-primary)',
+                      display: 'flex', flexDirection: 'column', gap: 2,
+                    }}>
+                    <span style={{ fontSize: '.84rem', fontWeight: 700 }}>{getProductName(opt)}</span>
+                    {getMeta && <span style={{ fontSize: '.72rem', color: 'var(--text-muted)' }}>{getMeta(opt)}</span>}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
       {error && <div className="pf-field-error">{error}</div>}
@@ -279,68 +342,59 @@ const BarcodeGenerator = () => {
   const productCodeRef = useRef(null);
   const priceRef = useRef(null);
   const sellingRef = useRef(null);
+  const mrpRef = useRef(null);
   const saveRef = useRef(null);
 
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [priceLoading, setPriceLoading] = useState(false);
-  const [productLoading, setProductLoading] = useState(false);
-  const [productLoadError, setProductLoadError] = useState('');
+  const [loading, setLoading] = useState(false);
   const [products, setProducts] = useState([]);
-  const [priceOptions, setPriceOptions] = useState([]);
+  const [productsLoadError, setProductsLoadError] = useState('');
+  const [saving, setSaving] = useState(false);
   const [product, setProduct] = useState(null);
-  const [priceRow, setPriceRow] = useState(null);
+  const [selectedProductId, setSelectedProductId] = useState(null);
   const [productQuery, setProductQuery] = useState('');
+  const [productJustSelected, setProductJustSelected] = useState(false);
   const [productCode, setProductCode] = useState('');
   const [priceQuery, setPriceQuery] = useState('');
   const [sellingPrice, setSellingPrice] = useState('');
   const [mrp, setMrp] = useState('');
   const [errors, setErrors] = useState({});
   const [apiError, setApiError] = useState('');
-  const productReqRef = useRef(0);
-  const lastProductSearchRef = useRef(null);
-
-  const loadProducts = useCallback(async (search = '', initial = false, options = {}) => {
-    const term = (search || '').trim();
-    if (!options.force && lastProductSearchRef.current === term && products.length > 0) return;
-    lastProductSearchRef.current = term;
-    const seq = ++productReqRef.current;
-    if (initial) setLoading(true);
-    setProductLoading(true);
-    setProductLoadError('');
-    try {
-      const rows = await barcodeService.getProducts(term ? { search: term } : {}, options);
-      if (seq !== productReqRef.current) return;
-      setProducts(prev => {
-        if (!rows.length && prev.length && term) return prev;
-        return rows;
-      });
-      setProductLoadError('');
-      setApiError('');
-    } catch (err) {
-      if (seq !== productReqRef.current) return;
-      if (err.code === 'ERR_CANCELED' || err.name === 'CanceledError') return;
-      lastProductSearchRef.current = null;
-      const status = err.response?.status;
-      const message = status === 401
-        ? 'Session expired. Please login again.'
-        : status === 403
-          ? 'You do not have permission to load products.'
-          : err.code === 'ECONNABORTED'
-            ? 'Product loading timed out. Retry.'
-            : err.response?.data?.detail || 'Unable to load products. Retry.';
-      setProductLoadError(message);
-      setApiError(message);
-    } finally {
-      if (seq === productReqRef.current) {
-        setProductLoading(false);
-        if (initial) setLoading(false);
-      }
-    }
-  }, [products.length]);
-
   useEffect(() => {
-    setLoading(false);
+    let mounted = true;
+    let settled = false;
+    const cached = barcodeService.getCachedProductOptions();
+    if (cached) {
+      setProducts(cached);
+      setLoading(false);
+    } else {
+      const showLoadingTimer = setTimeout(() => {
+        if (mounted && !settled) setLoading(true);
+      }, 150);
+      setLoading(false);
+      barcodeService.getProductOptions()
+        .then(rows => {
+          if (mounted) {
+            setProducts(rows);
+            setProductsLoadError('');
+          }
+        })
+        .catch(() => {
+          if (mounted) setProductsLoadError('Unable to load products. Retry');
+        })
+        .finally(() => {
+          settled = true;
+          clearTimeout(showLoadingTimer);
+          if (mounted) setLoading(false);
+        });
+    }
+
+    // Cached options are displayed immediately while this shared request
+    // refreshes the cache for the next visit without blocking the form.
+    barcodeService.refreshProductOptions()
+      .then(rows => { if (mounted) setProducts(rows); })
+      .catch(() => { if (mounted && !cached) setProductsLoadError('Unable to load products. Retry'); });
+
+    return () => { mounted = false; };
   }, []);
 
   useEffect(() => {
@@ -359,9 +413,9 @@ const BarcodeGenerator = () => {
 
   const resetForm = useCallback(() => {
     setProduct(null);
-    setPriceRow(null);
-    setPriceOptions([]);
+    setSelectedProductId(null);
     setProductQuery('');
+    setProductJustSelected(false);
     setProductCode('');
     setPriceQuery('');
     setSellingPrice('');
@@ -371,69 +425,11 @@ const BarcodeGenerator = () => {
     setTimeout(() => productRef.current?.focus(), 30);
   }, []);
 
-  const selectProduct = async (opt, { moveFocus = true } = {}) => {
-    setProduct(opt);
-    // Commit the display value in the parent form state as well as the
-    // dropdown's temporary query state. This keeps keyboard selection visible
-    // after the menu closes and while price details load.
-    setProductQuery(opt.ProductName || opt.product_name || opt.ProductNameEnglish || '');
-    setProductCode(opt.ProductCode || '');
-    setPriceRow(null);
-    setPriceOptions([]);
-    clearError('ProductId');
-    setPriceLoading(true);
-    try {
-      const prices = await barcodeService.getPriceCodes(opt.id);
-      setPriceOptions(prices);
-      const current = findProductPriceRow(priceQuery, prices);
-      setPriceRow(current);
-      if (current?.ProductPrice != null && !sellingPrice) setSellingPrice(String(current.ProductPrice));
-      if (moveFocus) setTimeout(() => priceRef.current?.focus(), 30);
-    } catch (err) {
-      setApiError(err.response?.data?.detail || 'Failed to load price codes for this product.');
-    } finally {
-      setPriceLoading(false);
-    }
-  };
-
-  const normalizePriceCode = value => String(value || '')
-    .trim()
-    .replace(/^price\s+/i, '')
-    .toLowerCase();
-
-  const findProductPriceRow = useCallback((value, rows = priceOptions) => {
-    const normalized = normalizePriceCode(value);
-    return rows.find(opt => {
-      const names = [
-        opt.PriceCodeName,
-        opt.PriceName,
-        opt.DisplayLabel,
-        opt.DisplayLabel?.replace(/^price\s+/i, ''),
-      ].filter(Boolean).map(normalizePriceCode);
-      return names.includes(normalized);
-    }) || null;
-  }, [priceOptions]);
-
-  const validateManualPriceCode = useCallback((moveNext = false) => {
-    const typed = priceQuery.trim();
-    if (!typed) {
-      setPriceRow(null);
-      setErrors(prev => ({ ...prev, Product_Price_Code_Id: 'Price Code is required.' }));
-      return false;
-    }
-    const productPrice = findProductPriceRow(typed);
-    setPriceRow(productPrice);
-    if (productPrice?.ProductPrice != null && !sellingPrice) setSellingPrice(String(productPrice.ProductPrice));
-    clearError('Product_Price_Code_Id');
-    if (moveNext) setTimeout(() => sellingRef.current?.focus(), 20);
-    return true;
-  }, [clearError, findProductPriceRow, priceQuery, sellingPrice]);
-
   const validate = () => {
     const next = {};
     const sp = Number(sellingPrice);
     const mrpNum = Number(mrp);
-    if (!product) next.ProductId = 'Product Name is required.';
+    if (selectedProductId == null || !productQuery.trim()) next.ProductId = 'Product Name is required.';
     if (!priceQuery.trim()) next.Product_Price_Code_Id = 'Price Code is required.';
     if (!sellingPrice) next.SellingPrice = 'Selling Price is required.';
     else if (!decimalPattern.test(sellingPrice) || sp <= 0) next.SellingPrice = 'Enter a valid positive selling price.';
@@ -455,7 +451,7 @@ const BarcodeGenerator = () => {
     setApiError('');
     try {
       await barcodeService.create({
-        ProductId: product.id,
+        ProductId: selectedProductId,
         Product_Price_Code_Id: priceQuery.trim(),
         SellingPrice: sellingPrice,
         MRP: mrp,
@@ -480,19 +476,53 @@ const BarcodeGenerator = () => {
   };
 
   const handleFormKeyDown = e => {
-    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+    if (e.altKey && e.key.toLowerCase() === 's') {
       e.preventDefault();
-      submit(e);
+      if (!saving) submit(e);
       return;
     }
-    if (e.defaultPrevented || e.key !== 'Enter') return;
-    if (e.target === saveRef.current) return;
-    if (e.target === priceRef.current) {
+
+    if (e.defaultPrevented) return;
+    if (e.key === 'Escape') {
       e.preventDefault();
-      validateManualPriceCode(true);
+      if (e.target === productRef.current) {
+        setSelectedProductId(null);
+        setProductQuery('');
+        setProductJustSelected(false);
+        setProduct(null);
+      }
+      else if (e.target === productCodeRef.current) setProductCode('');
+      else if (e.target === priceRef.current) setPriceQuery('');
+      else if (e.target === sellingRef.current) setSellingPrice('');
+      else if (e.target === mrpRef.current) setMrp('');
+      e.target.focus();
       return;
     }
+
+    if (e.key === 'Backspace' && e.target.value === '') {
+      e.preventDefault();
+      if (e.target === mrpRef.current) sellingRef.current?.focus();
+      else if (e.target === sellingRef.current) priceRef.current?.focus();
+      else if (e.target === priceRef.current) productCodeRef.current?.focus();
+      else if (e.target === productCodeRef.current) productRef.current?.focus();
+      return;
+    }
+
+    if (e.key !== 'Enter') return;
     e.preventDefault();
+    if (e.target === productRef.current) productCodeRef.current?.focus();
+    else if (e.target === productCodeRef.current) priceRef.current?.focus();
+    else if (e.target === priceRef.current) sellingRef.current?.focus();
+    else if (e.target === sellingRef.current) mrpRef.current?.focus();
+  };
+
+  const selectProduct = productOption => {
+    if (!productOption) return;
+    setProduct(productOption);
+    setSelectedProductId(productOption.id);
+    setProductQuery(productOption.label);
+    setProductJustSelected(true);
+    clearError('ProductId');
   };
 
   return (
@@ -507,7 +537,6 @@ const BarcodeGenerator = () => {
       {apiError && (
         <div className="alert alert-warning animate-in" style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:'.75rem'}}>
           <span>{apiError}</span>
-          <button type="button" className="btn btn-outline-secondary btn-sm" onClick={() => loadProducts(productQuery, false, { force: true })}>Retry</button>
         </div>
       )}
 
@@ -515,37 +544,34 @@ const BarcodeGenerator = () => {
         <div className="pf-card barcode-generator-card professional-form-container animate-in animate-in-1">
           <div className="pf-card-body professional-form-content">
             <div className="barcode-grid barcode-grid-product">
-              <SearchDropdown
-                id="barcode-product"
-                label="Product Name"
-                required
-                placeholder="Search or type product..."
-                value={product}
-                query={productQuery}
-                setQuery={setProductQuery}
-                options={products}
-                onSelect={selectProduct}
-                disabled={saving}
-                error={errors.ProductId}
-                inputRef={productRef}
-                leftIcon={<SearchIcon />}
-                getLabel={opt => opt.ProductName || ''}
-                getMeta={opt => [opt.ProductCode, opt.Units].filter(Boolean).join(' | ')}
-                onClear={() => {
-                  setProduct(null);
-                  setPriceRow(null);
-                  setPriceOptions([]);
-                  setProductCode('');
-                  setPriceQuery('');
-                  setSellingPrice('');
-                  setMrp('');
-                }}
-                emptyText="No products found"
-                onSearch={loadProducts}
-                loading={productLoading}
-                loadError={productLoadError}
-                onNext={() => priceRef.current?.focus()}
-              />
+              <div>
+                <SearchDropdown
+                  id="barcode-product"
+                  label="Product Name"
+                  required
+                  placeholder="Enter product name"
+                  value={product}
+                  query={productQuery}
+                  setQuery={setProductQuery}
+                  options={products}
+                  onSelect={selectProduct}
+                  onClear={() => {
+                    setProduct(null);
+                    setSelectedProductId(null);
+                    setProductJustSelected(false);
+                  }}
+                  disabled={saving}
+                  error={errors.ProductId}
+                  inputRef={productRef}
+                  getLabel={option => option?.label || ''}
+                  emptyText="No products found"
+                  loading={loading}
+                  loadError={productsLoadError}
+                  onNext={() => productCodeRef.current?.focus()}
+                  selectedId={selectedProductId}
+                  selectedName={productQuery}
+                />
+              </div>
 
               <div>
                 <label className="pf-label" htmlFor="barcode-product-code">Product Code</label>
@@ -581,15 +607,8 @@ const BarcodeGenerator = () => {
                   value={priceQuery}
                   disabled={saving}
                   onChange={e => {
-                    const next = e.target.value;
-                    setPriceQuery(next);
-                    const match = findProductPriceRow(next);
-                    setPriceRow(match);
-                    if (match?.ProductPrice != null) setSellingPrice(String(match.ProductPrice));
+                    setPriceQuery(e.target.value);
                     clearError('Product_Price_Code_Id');
-                  }}
-                  onBlur={() => {
-                    if (priceQuery.trim()) validateManualPriceCode(false);
                   }}
                 />
                 {errors.Product_Price_Code_Id && <div className="pf-field-error">{errors.Product_Price_Code_Id}</div>}
@@ -634,6 +653,7 @@ const BarcodeGenerator = () => {
                     fontWeight: 700, pointerEvents: 'none',
                   }}>₹</span>
                   <input
+                    ref={mrpRef}
                     id="barcode-mrp"
                     type="text"
                     inputMode="decimal"

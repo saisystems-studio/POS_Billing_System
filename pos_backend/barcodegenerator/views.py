@@ -17,24 +17,14 @@ class BarcodeProductOptionsView(generics.ListAPIView):
     serializer_class = BarcodeProductOptionSerializer
     permission_classes = [IsAuthenticated]
     pagination_class = None
-    filter_backends = [filters.SearchFilter]
-    search_fields = ['ProductName', 'ProductCode', 'Units']
 
     def get_queryset(self):
         return (
             Product.objects
             .filter(IsActive=True)
-            .only('id', 'ProductCode', 'ProductName', 'Units')
-            .order_by('ProductName')
+            .values('id', 'ProductName')
+            .order_by('ProductName', 'id')
         )
-
-    def filter_queryset(self, queryset):
-        qs = super().filter_queryset(queryset)
-        try:
-            limit = min(max(int(self.request.query_params.get('limit', 50)), 1), 100)
-        except (TypeError, ValueError):
-            limit = 50
-        return qs[:limit]
 
 
 class BarcodeProductPriceCodesView(generics.ListAPIView):

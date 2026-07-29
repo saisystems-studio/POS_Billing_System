@@ -5,10 +5,12 @@ from products.models import Product, ProductPriceDetails
 from .models import BarcodeGenerator
 
 
-class BarcodeProductOptionSerializer(serializers.ModelSerializer):
+class BarcodeProductOptionSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    ProductName = serializers.CharField()
+
     class Meta:
-        model = Product
-        fields = ['id', 'ProductCode', 'ProductName', 'Units']
+        fields = ['id', 'ProductName']
 
 
 class BarcodePriceOptionSerializer(serializers.ModelSerializer):

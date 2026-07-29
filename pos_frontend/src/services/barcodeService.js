@@ -5,6 +5,8 @@ const PRODUCT_TIMEOUT_MS = 30000;
 const PRICE_TIMEOUT_MS = 15000;
 const productCache = new Map();
 const productRequests = new Map();
+let productOptionsCache = null;
+let productOptionsRequest = null;
 
 const stableKey = (params = {}) => JSON.stringify(
   Object.keys(params)
@@ -18,6 +20,26 @@ const stableKey = (params = {}) => JSON.stringify(
 const clearBarcodeCache = () => {
   productCache.clear();
   productRequests.clear();
+  productOptionsCache = null;
+  productOptionsRequest = null;
+};
+
+const fetchProductOptions = () => {
+  if (productOptionsRequest) return productOptionsRequest;
+  productOptionsRequest = api.get('/barcode-generator/products/', {
+    timeout: PRODUCT_TIMEOUT_MS,
+  }).then(response => {
+    const rows = unwrap(response.data);
+    const options = rows.map(product => ({
+      id: product.id,
+      label: product.ProductName,
+    }));
+    productOptionsCache = options;
+    return options;
+  }).finally(() => {
+    productOptionsRequest = null;
+  });
+  return productOptionsRequest;
 };
 
 window.addEventListener('pos-auth-cleared', clearBarcodeCache);
@@ -43,6 +65,15 @@ const barcodeService = {
     productRequests.set(key, request);
     return request;
   },
+
+  getCachedProductOptions: () => productOptionsCache,
+
+  getProductOptions: async ({ force = false } = {}) => {
+    if (!force && productOptionsCache) return productOptionsCache;
+    return fetchProductOptions();
+  },
+
+  refreshProductOptions: () => fetchProductOptions(),
 
   getPriceCodes: async (productId, params = {}) => {
     const response = await api.get(`/barcode-generator/products/${productId}/price-codes/`, {
