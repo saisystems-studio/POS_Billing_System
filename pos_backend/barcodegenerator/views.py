@@ -64,8 +64,6 @@ class BarcodeGeneratorListCreateView(generics.ListCreateAPIView):
     def get_queryset(self):
         return BarcodeGenerator.objects.select_related(
             'ProductId',
-            'Product_Price_Code_Id__ProductId',
-            'Product_Price_Code_Id__PriceCodeID',
             'CreatedBy',
         ).all()
 

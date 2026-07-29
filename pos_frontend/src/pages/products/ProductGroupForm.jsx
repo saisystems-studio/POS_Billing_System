@@ -253,7 +253,7 @@ const ProductGroupForm = () => {
               onClick={() => navigate('/products/groups')} disabled={saving}>
               Cancel
             </button>
-            <button type="submit" className="btn btn-primary" disabled={saving}>
+            <button type="button" data-save-action="true" className="btn btn-primary" onClick={handleSubmit} disabled={saving}>
               {saving
                 ? <>{spinEl} Saving…</>
                 : <><SaveIcon /> {isEdit ? 'Update Group' : 'Save Group'}</>

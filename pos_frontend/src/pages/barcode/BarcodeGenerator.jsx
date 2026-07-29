@@ -61,11 +61,14 @@ const SearchDropdown = ({
   onSearch,
   loading,
   loadError,
+  onNext,
 }) => {
   const [open, setOpen] = useState(false);
-  const [hi, setHi] = useState(0);
+  const [hi, setHi] = useState(-1);
   const wrapRef = useRef(null);
   const optionRefs = useRef([]);
+  const hiRef = useRef(-1);
+  const filteredRef = useRef([]);
 
   const filtered = useMemo(() => {
     const term = query.trim().toLowerCase();
@@ -76,6 +79,13 @@ const SearchDropdown = ({
       return labelText.includes(term) || metaText.includes(term);
     });
   }, [getLabel, getMeta, options, query]);
+  hiRef.current = hi;
+  filteredRef.current = filtered;
+
+  const setHighlightedIndex = next => {
+    hiRef.current = next;
+    setHi(next);
+  };
 
   useEffect(() => {
     if (!open) return;
@@ -88,8 +98,18 @@ const SearchDropdown = ({
 
   useEffect(() => {
     if (!open) return;
-    setHi(h => Math.min(h, Math.max(filtered.length - 1, 0)));
+    setHi(current => {
+      const next = Math.min(current, Math.max(filtered.length - 1, 0));
+      hiRef.current = next;
+      return next;
+    });
   }, [filtered.length, open]);
+
+  // Keep the committed product label visible after the menu closes or focus
+  // moves away; query text is only temporary while the user is searching.
+  useEffect(() => {
+    if (!open && value) setQuery(getLabel(value));
+  }, [getLabel, open, setQuery, value]);
 
   useEffect(() => {
     if (!open) return;
@@ -112,34 +132,62 @@ const SearchDropdown = ({
       setQuery('');
       onClear?.();
       setOpen(false);
-      setHi(0);
+      setHighlightedIndex(0);
       setTimeout(() => el.focus(), 0);
     };
     el.addEventListener('pos-escape-clear-field', clear);
     return () => el.removeEventListener('pos-escape-clear-field', clear);
   }, [disabled, inputRef, onClear, setQuery]);
 
-  const pick = opt => {
-    onSelect(opt);
+  const handleProductSelect = (opt, { moveFocus = true } = {}) => {
+    onSelect(opt, { moveFocus });
     setQuery(getLabel(opt));
     setOpen(false);
-    setHi(0);
+    setHighlightedIndex(-1);
   };
 
   const handleKeyDown = e => {
     if (e.key === 'ArrowDown') {
       e.preventDefault();
+      e.stopPropagation();
       setOpen(true);
-      setHi(h => Math.min(h + 1, Math.max(filtered.length - 1, 0)));
-    } else if (e.key === 'ArrowUp') {
+      setHighlightedIndex(Math.min(hiRef.current + 1, Math.max(filteredRef.current.length - 1, 0)));
+      return;
+    }
+    if (e.key === 'ArrowUp') {
       e.preventDefault();
+      e.stopPropagation();
       setOpen(true);
-      setHi(h => Math.max(h - 1, 0));
-    } else if (e.key === 'Enter' && open) {
+      setHighlightedIndex(Math.max(hiRef.current - 1, 0));
+      return;
+    }
+    if (e.key === 'Enter') {
+      if (open) {
+        e.preventDefault();
+        e.stopPropagation();
+        const highlightedOption = hiRef.current >= 0
+          ? filteredRef.current[hiRef.current]
+          : null;
+        if (highlightedOption) {
+          handleProductSelect(highlightedOption, { moveFocus: false });
+          return;
+        }
+        setOpen(false);
+        setHighlightedIndex(-1);
+        return;
+      }
+      if (value) {
+        e.preventDefault();
+        e.stopPropagation();
+        onNext?.();
+        return;
+      }
+    }
+    if (e.key === 'Escape') {
       e.preventDefault();
-      if (filtered[hi]) pick(filtered[hi]);
-    } else if (e.key === 'Escape') {
+      e.stopPropagation();
       setOpen(false);
+      return;
     }
   };
 
@@ -159,13 +207,16 @@ const SearchDropdown = ({
           value={query}
           disabled={disabled}
           autoComplete="off"
-          onFocus={() => setOpen(true)}
+          onFocus={() => { setOpen(true); setHighlightedIndex(-1); }}
+          onBlur={() => setTimeout(() => {
+            if (!wrapRef.current?.contains(document.activeElement)) setOpen(false);
+          }, 0)}
           onChange={e => {
             const next = e.target.value;
             setQuery(next);
             if (value && next !== getLabel(value)) onClear?.();
             setOpen(true);
-            setHi(0);
+            setHighlightedIndex(-1);
           }}
           onKeyDown={handleKeyDown}
         />
@@ -180,7 +231,11 @@ const SearchDropdown = ({
           borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-lg)',
           maxHeight: 220, overflowY: 'auto',
         }}>
-          {loadError && filtered.length === 0 ? (
+          {loading && filtered.length === 0 ? (
+            <div style={{ padding: '.55rem .7rem', fontSize: '.78rem', color: 'var(--text-muted)' }}>
+              Loading products...
+            </div>
+          ) : loadError && filtered.length === 0 ? (
             <div style={{ padding: '.55rem .7rem', fontSize: '.78rem', color: 'var(--danger)', fontWeight: 600 }}>
               {loadError}
             </div>
@@ -197,8 +252,8 @@ const SearchDropdown = ({
                 key={opt.id}
                 ref={el => { optionRefs.current[idx] = el; }}
                 type="button"
-                onMouseDown={e => { e.preventDefault(); pick(opt); }}
-                onMouseEnter={() => setHi(idx)}
+                onMouseDown={e => { e.preventDefault(); handleProductSelect(opt); }}
+                onMouseEnter={() => setHighlightedIndex(idx)}
                 style={{
                   width: '100%', border: 0, textAlign: 'left',
                   padding: '.48rem .7rem', cursor: 'pointer',
@@ -221,6 +276,7 @@ const SearchDropdown = ({
 const BarcodeGenerator = () => {
   const toast = useToast();
   const productRef = useRef(null);
+  const productCodeRef = useRef(null);
   const priceRef = useRef(null);
   const sellingRef = useRef(null);
   const saveRef = useRef(null);
@@ -232,7 +288,6 @@ const BarcodeGenerator = () => {
   const [productLoadError, setProductLoadError] = useState('');
   const [products, setProducts] = useState([]);
   const [priceOptions, setPriceOptions] = useState([]);
-  const [priceCodeMasters, setPriceCodeMasters] = useState([]);
   const [product, setProduct] = useState(null);
   const [priceRow, setPriceRow] = useState(null);
   const [productQuery, setProductQuery] = useState('');
@@ -289,12 +344,6 @@ const BarcodeGenerator = () => {
   }, []);
 
   useEffect(() => {
-    barcodeService.getPriceCodeMasters()
-      .then(rows => setPriceCodeMasters(rows))
-      .catch(() => setApiError('Unable to load price codes. Retry.'));
-  }, []);
-
-  useEffect(() => {
     if (!loading) setTimeout(() => productRef.current?.focus(), 40);
   }, [loading]);
 
@@ -322,8 +371,12 @@ const BarcodeGenerator = () => {
     setTimeout(() => productRef.current?.focus(), 30);
   }, []);
 
-  const selectProduct = async opt => {
+  const selectProduct = async (opt, { moveFocus = true } = {}) => {
     setProduct(opt);
+    // Commit the display value in the parent form state as well as the
+    // dropdown's temporary query state. This keeps keyboard selection visible
+    // after the menu closes and while price details load.
+    setProductQuery(opt.ProductName || opt.product_name || opt.ProductNameEnglish || '');
     setProductCode(opt.ProductCode || '');
     setPriceRow(null);
     setPriceOptions([]);
@@ -335,7 +388,7 @@ const BarcodeGenerator = () => {
       const current = findProductPriceRow(priceQuery, prices);
       setPriceRow(current);
       if (current?.ProductPrice != null && !sellingPrice) setSellingPrice(String(current.ProductPrice));
-      setTimeout(() => priceRef.current?.focus(), 30);
+      if (moveFocus) setTimeout(() => priceRef.current?.focus(), 30);
     } catch (err) {
       setApiError(err.response?.data?.detail || 'Failed to load price codes for this product.');
     } finally {
@@ -348,23 +401,9 @@ const BarcodeGenerator = () => {
     .replace(/^price\s+/i, '')
     .toLowerCase();
 
-  const findPriceCodeMaster = useCallback((value) => {
-    const normalized = value.trim().toLowerCase();
-    return priceCodeMasters.find(opt => {
-      const names = [
-        opt.PriceCodeName,
-        opt.DisplayLabel,
-        opt.DisplayLabel?.replace(/^price\s+/i, ''),
-      ].filter(Boolean).map(v => String(v).trim().toLowerCase());
-      return names.includes(normalized);
-    }) || null;
-  }, [priceCodeMasters]);
-
   const findProductPriceRow = useCallback((value, rows = priceOptions) => {
-    const master = findPriceCodeMaster(value);
     const normalized = normalizePriceCode(value);
     return rows.find(opt => {
-      if (master?.id && opt.PriceCodeID === master.id) return true;
       const names = [
         opt.PriceCodeName,
         opt.PriceName,
@@ -373,7 +412,7 @@ const BarcodeGenerator = () => {
       ].filter(Boolean).map(normalizePriceCode);
       return names.includes(normalized);
     }) || null;
-  }, [findPriceCodeMaster, priceOptions]);
+  }, [priceOptions]);
 
   const validateManualPriceCode = useCallback((moveNext = false) => {
     const typed = priceQuery.trim();
@@ -382,20 +421,13 @@ const BarcodeGenerator = () => {
       setErrors(prev => ({ ...prev, Product_Price_Code_Id: 'Price Code is required.' }));
       return false;
     }
-    const master = findPriceCodeMaster(typed);
     const productPrice = findProductPriceRow(typed);
-    if (!master) {
-      setPriceRow(null);
-      setErrors(prev => ({ ...prev, Product_Price_Code_Id: 'Price Code does not exist.' }));
-      return false;
-    }
     setPriceRow(productPrice);
-    setPriceQuery(master.PriceCodeName || master.DisplayLabel || typed);
     if (productPrice?.ProductPrice != null && !sellingPrice) setSellingPrice(String(productPrice.ProductPrice));
     clearError('Product_Price_Code_Id');
     if (moveNext) setTimeout(() => sellingRef.current?.focus(), 20);
     return true;
-  }, [clearError, findPriceCodeMaster, findProductPriceRow, priceQuery, sellingPrice]);
+  }, [clearError, findProductPriceRow, priceQuery, sellingPrice]);
 
   const validate = () => {
     const next = {};
@@ -403,7 +435,6 @@ const BarcodeGenerator = () => {
     const mrpNum = Number(mrp);
     if (!product) next.ProductId = 'Product Name is required.';
     if (!priceQuery.trim()) next.Product_Price_Code_Id = 'Price Code is required.';
-    else if (!findPriceCodeMaster(priceQuery)) next.Product_Price_Code_Id = 'Price Code does not exist.';
     if (!sellingPrice) next.SellingPrice = 'Selling Price is required.';
     else if (!decimalPattern.test(sellingPrice) || sp <= 0) next.SellingPrice = 'Enter a valid positive selling price.';
     if (!mrp) next.MRP = 'MRP is required.';
@@ -420,27 +451,12 @@ const BarcodeGenerator = () => {
       setErrors(nextErrors);
       return;
     }
-    let matchedPriceRow = priceRow || findProductPriceRow(priceQuery);
-    if (!matchedPriceRow && product) {
-      try {
-        const rows = priceOptions.length ? priceOptions : await barcodeService.getPriceCodes(product.id);
-        setPriceOptions(rows);
-        matchedPriceRow = findProductPriceRow(priceQuery, rows);
-      } catch {
-        setApiError('Unable to validate price code for this product. Retry.');
-        return;
-      }
-    }
-    if (!matchedPriceRow) {
-      setErrors({ Product_Price_Code_Id: 'Price Code is not available for this product.' });
-      return;
-    }
     setSaving(true);
     setApiError('');
     try {
       await barcodeService.create({
         ProductId: product.id,
-        Product_Price_Code_Id: matchedPriceRow.id,
+        Product_Price_Code_Id: priceQuery.trim(),
         SellingPrice: sellingPrice,
         MRP: mrp,
       });
@@ -528,6 +544,7 @@ const BarcodeGenerator = () => {
                 onSearch={loadProducts}
                 loading={productLoading}
                 loadError={productLoadError}
+                onNext={() => priceRef.current?.focus()}
               />
 
               <div>
@@ -535,6 +552,7 @@ const BarcodeGenerator = () => {
                 <div>
                   <input
                     id="barcode-product-code"
+                    ref={productCodeRef}
                     className={`pf-input barcode-input${errors.ProductCode ? ' pf-input--error' : ''}`}
                     value={productCode}
                     disabled={saving}

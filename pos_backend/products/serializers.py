@@ -156,7 +156,9 @@ class ProductSerializer(serializers.ModelSerializer):
     def validate_HSNCode(self, value):
         val = (value or '').strip()
         if not val:
-            raise serializers.ValidationError("HSN Code is required.")
+            raise serializers.ValidationError("HSN is required. Please enter a valid HSN code.")
+        if set(val) == {'0'}:
+            raise serializers.ValidationError("HSN cannot be 0000. Please enter a proper HSN code.")
         return val
 
     def validate_Units(self, value):
@@ -178,8 +180,11 @@ class ProductSerializer(serializers.ModelSerializer):
         hsn = attrs.get('HSNCode', getattr(self.instance, 'HSNCode', None))
         gst = attrs.get('GSTPercent', getattr(self.instance, 'GSTPercent', None))
         field_errors = {}
-        if hsn is None or str(hsn).strip() == '':
-            field_errors['HSNCode'] = 'HSN Code is required.'
+        normalized_hsn = '' if hsn is None else str(hsn).strip()
+        if not normalized_hsn:
+            field_errors['HSNCode'] = 'HSN is required. Please enter a valid HSN code.'
+        elif set(normalized_hsn) == {'0'}:
+            field_errors['HSNCode'] = 'HSN cannot be 0000. Please enter a proper HSN code.'
         if gst is None or gst == '':
             field_errors['GSTPercent'] = 'GST Percentage is required.'
         if field_errors:
@@ -259,7 +264,9 @@ class ProductWithPricesCreateSerializer(serializers.Serializer):
     def validate_HSNCode(self, value):
         val = (value or '').strip()
         if not val:
-            raise serializers.ValidationError("HSN Code is required.")
+            raise serializers.ValidationError("HSN is required. Please enter a valid HSN code.")
+        if set(val) == {'0'}:
+            raise serializers.ValidationError("HSN cannot be 0000. Please enter a proper HSN code.")
         return val
 
     def validate(self, attrs):

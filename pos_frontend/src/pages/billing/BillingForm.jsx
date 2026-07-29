@@ -969,6 +969,7 @@ const BillingForm = () => {
   const [productsHasMore, setProductsHasMore] = useState(false);
   const [productsCursor, setProductsCursor] = useState(null);
   const [customerID, setCustomerID] = useState(null);
+  const [editCustomerName, setEditCustomerName] = useState('');
   const [priceConfig,setPriceConfig]= useState(null);
   const [rows,       setRows]       = useState([EMPTY_LINE()]);
   const [savedBillNo,setSavedBillNo]= useState('');
@@ -1340,15 +1341,15 @@ const BillingForm = () => {
       try {
         const [pc] = await Promise.all([
           billingService.getPriceCodes(),
-          loadCustomers(),
         ]);
+        if (!isEdit) await loadCustomers();
         setPriceCodes(Array.isArray(pc) ? pc : []);
       } catch (err) {
         setApiError(err.response?.data?.detail || 'Failed to load form data. Please retry.');
       }
     };
     load();
-  }, [loadCustomers, loadProducts]);
+  }, [isEdit, loadCustomers, loadProducts]);
 
   /* Restore a sales draft after returning from quick customer/product creation */
   useEffect(() => {
@@ -1399,6 +1400,7 @@ const BillingForm = () => {
         return next.sort((a, b) => (a.CustomerName || '').localeCompare(b.CustomerName || ''));
       });
       setCustomerID(newCust.id);
+      if (isEdit) setEditCustomerName(newCust.CustomerName || '');
       if (newCust.PriceConfig && !newCust.PriceConfig.PriceConfigurationMissing) setPriceConfig(newCust.PriceConfig);
     } else if (draft?.customerID) {
       setCustomerID(draft.customerID);
@@ -1427,6 +1429,7 @@ const BillingForm = () => {
       try {
         const bill = await billingService.getBilling(id);
         setEditBillNo(bill.BillNo || `#${bill.id}`);
+        setEditCustomerName(bill.CustomerName || '');
         setCustomers(prev => {
           if (!bill.CustomerID || prev.some(c => c.id === bill.CustomerID)) return prev;
           return [...prev, {
@@ -1995,19 +1998,31 @@ const BillingForm = () => {
             <span className="sales-compact-label">
               Customer Name <span style={{color:'var(--danger)'}}>*</span>
             </span>
-            <CustomerSearchDropdown
-              customers={customers}
-              value={customerID}
-              onChange={handleCustomerChange}
-              onNavigateToAdd={goToAddCustomer}
-              disabled={saving || isReadOnly}
-              inputRef={custRef}
-              onNext={() => focusCell(0, activeCols()[0])}
-              onPrev={focusLastGridField}
-              onSearch={loadCustomers}
-              loading={customersLoading}
-              error={customersError}
-            />
+            {isEdit ? (
+              <input
+                type="text"
+                value={editCustomerName}
+                readOnly
+                tabIndex={-1}
+                aria-label="Customer Name"
+                className="customer-readonly-input"
+                style={{width:'100%',height:32,padding:'.25rem .6rem',fontSize:'.82rem',border:'1.5px solid var(--border-input)',borderRadius:6,background:'var(--bg-soft)',color:'var(--text-primary)',fontWeight:600}}
+              />
+            ) : (
+              <CustomerSearchDropdown
+                customers={customers}
+                value={customerID}
+                onChange={handleCustomerChange}
+                onNavigateToAdd={goToAddCustomer}
+                disabled={saving || isReadOnly}
+                inputRef={custRef}
+                onNext={() => focusCell(0, activeCols()[0])}
+                onPrev={focusLastGridField}
+                onSearch={loadCustomers}
+                loading={customersLoading}
+                error={customersError}
+              />
+            )}
           </div>
 
           <div className="sales-compact-price">

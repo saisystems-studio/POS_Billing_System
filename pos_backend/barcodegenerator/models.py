@@ -1,7 +1,7 @@
 from django.db import models
 
 from authentication.models import User as Login
-from products.models import Product, ProductPriceDetails
+from products.models import Product
 
 
 class BarcodeGenerator(models.Model):
@@ -12,10 +12,8 @@ class BarcodeGenerator(models.Model):
         related_name='barcode_generator_records',
         db_column='ProductId',
     )
-    Product_Price_Code_Id = models.ForeignKey(
-        ProductPriceDetails,
-        on_delete=models.PROTECT,
-        related_name='barcode_generator_records',
+    Product_Price_Code_Id = models.CharField(
+        max_length=100,
         db_column='Product_Price_Code_Id',
     )
     SellingPrice = models.DecimalField(max_digits=18, decimal_places=2)
@@ -39,7 +37,6 @@ class BarcodeGenerator(models.Model):
         ]
         indexes = [
             models.Index(fields=['ProductId'], name='idx_barcode_product'),
-            models.Index(fields=['Product_Price_Code_Id'], name='idx_barcode_price'),
         ]
 
     def __str__(self):

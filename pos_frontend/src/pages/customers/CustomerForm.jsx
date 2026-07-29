@@ -50,10 +50,10 @@ const Toggle = ({ value, onChange, disabled }) => (
     <span style={{fontSize:'.76rem',fontWeight:700,color:value?BRAND:'var(--text-muted)'}}>{value?'Active':'Inactive'}</span>
   </div>
 );
-const CBx = ({ checked, onChange, disabled, label }) => (
+const CBx = ({ checked, onChange, disabled, label, navOrder }) => (
   <label className="form-check customer-checkbox-row" style={{display:'flex',alignItems:'center',gap:'.3rem',cursor:disabled?'default':'pointer',
     fontSize:'.74rem',fontWeight:500,color:'var(--text-label)',userSelect:'none'}}>
-    <input type="checkbox" className="form-check-input" checked={checked} onChange={onChange} disabled={disabled}
+    <input type="checkbox" data-nav-order={navOrder} className="form-check-input" checked={checked} onChange={onChange} disabled={disabled}
       style={{width:13,height:13,accentColor:BRAND,cursor:disabled?'not-allowed':'pointer'}}/>
     <span className="form-check-label">{label}</span>
   </label>
@@ -77,7 +77,7 @@ const F = ({ label, required, opt, error, children, style }) => (
   </div>
 );
 
-const SearchableDropdown = ({ value, onChange, options, placeholder, disabled, error }) => {
+const SearchableDropdown = ({ value, onChange, options, placeholder, disabled, error, navOrder }) => {
   const [query, setQuery] = useState(value || '');
   const [open,  setOpen]  = useState(false);
   const ref = useRef(null);
@@ -93,6 +93,13 @@ const SearchableDropdown = ({ value, onChange, options, placeholder, disabled, e
     document.addEventListener('mousedown', h);
     return () => document.removeEventListener('mousedown', h);
   }, [open]);
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!el) return undefined;
+    const closeWithoutSelection = () => { setOpen(false); setQuery(value || ''); };
+    el.addEventListener('pos-dropdown-enter-empty', closeWithoutSelection);
+    return () => el.removeEventListener('pos-dropdown-enter-empty', closeWithoutSelection);
+  }, [value]);
   useEffect(() => {
     const el = inputRef.current;
     if (!el) return undefined;
@@ -116,7 +123,7 @@ const SearchableDropdown = ({ value, onChange, options, placeholder, disabled, e
   });
   return (
     <div ref={ref} className="app-dropdown" style={{position:'relative'}}>
-      <input ref={inputRef} type="text" className={`form-control${error?' is-invalid':''}`}
+      <input ref={inputRef} data-nav-order={navOrder} type="text" className={`form-control${error?' is-invalid':''}`}
         placeholder={placeholder} value={query} disabled={disabled} autoComplete="off"
         style={{...CI,paddingRight:'2rem',borderColor:error?'var(--danger)':undefined}}
         onChange={e=>{setQuery(e.target.value);setOpen(true);if(!e.target.value.trim())onChange('');}}
@@ -229,6 +236,7 @@ const CustomerForm = () => {
 
   const [loading,      setLoading]      = useState(false);
   const [saving,       setSaving]       = useState(false);
+  const saveInFlightRef = useRef(false);
   const [errors,       setErrors]       = useState({});
   const [apiError,     setApiError]     = useState('');
   const [form,         setForm]         = useState(EMPTY);
@@ -363,8 +371,11 @@ const CustomerForm = () => {
 
   const submit = async (e) => {
     e.preventDefault();
+    e.stopPropagation();
+    if (saveInFlightRef.current || saving) return;
     const errs = validate();
     if (Object.keys(errs).length) { setErrors(errs); return; }
+    saveInFlightRef.current = true;
     setSaving(true); setApiError('');
     const addrParts = [form.Address.trim(), form.District.trim(), form.State.trim(), form.Country.trim(), form.PinCode.trim()];
     const Address = addrParts.join(' | ');
@@ -405,7 +416,7 @@ const CustomerForm = () => {
         setErrors(fe); setApiError('Please fix the errors below.');
       } else { setApiError(data?.detail || 'Failed to save. Please try again.'); }
       toast.error(isEdit ? 'Update Failed' : 'Save Failed', err.response?.data?.detail || 'Please check and try again.');
-    } finally { setSaving(false); }
+    } finally { saveInFlightRef.current = false; setSaving(false); }
   };
 
   if (loading) return <Layout><LoadingSpinner message="Loading customer…"/></Layout>;
@@ -430,7 +441,7 @@ const CustomerForm = () => {
         </div>
       </div>
       {apiError && <div className="alert alert-warning animate-in"><span>⚠️</span><span>{apiError}</span></div>}
-      <form className="customer-form-page" onSubmit={submit} noValidate>
+      <form className="customer-form-page" onSubmit={e => { e.preventDefault(); e.stopPropagation(); }} noValidate>
         <div className="card animate-in animate-in-1 professional-customer-form-card" style={{width:'100%',maxWidth:1120,margin:'0 auto 1.25rem'}}>
           <div className="card-body" style={{padding:'1.125rem 1.5rem'}}>
             {/* Header */}
@@ -454,7 +465,7 @@ const CustomerForm = () => {
                   style={{...CI,fontFamily:'ui-monospace,monospace',fontSize:'.75rem',background:'var(--bg-soft)',color:'var(--text-muted)',cursor:'not-allowed'}}/>
               </F>
               <F label="Customer Name" required error={errors.CustomerName}>
-                <input name="CustomerName" type="text"
+                <input name="CustomerName" data-nav-order="1" type="text"
                   className={`form-control${errors.CustomerName?' is-invalid':''}`}
                   placeholder="Enter full customer name"
                   value={form.CustomerName} onChange={change} disabled={isReadOnly} style={inp('CustomerName')}/>
@@ -463,13 +474,13 @@ const CustomerForm = () => {
 
             <div className="customer-form-grid" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'.75rem',marginBottom:'.65rem'}}>
               <F label="Email" opt error={errors.EmailId}>
-                <input name="EmailId" type="email"
+                <input name="EmailId" data-nav-order="2" type="email"
                   className={`form-control${errors.EmailId?' is-invalid':''}`}
                   placeholder="customer@example.com"
                   value={form.EmailId} onChange={change} disabled={isReadOnly} style={inp('EmailId')}/>
               </F>
               <F label="Phone Number" opt error={errors.PhoneNumber}>
-                <input name="PhoneNumber" type="tel" inputMode="numeric" maxLength={10}
+                <input name="PhoneNumber" data-nav-order="3" type="tel" inputMode="numeric" maxLength={10}
                   className={`form-control${errors.PhoneNumber?' is-invalid':''}`}
                   placeholder="10-digit mobile (optional)"
                   value={form.PhoneNumber} onChange={change} disabled={isReadOnly}
@@ -484,8 +495,8 @@ const CustomerForm = () => {
                   fontWeight:700,fontSize:'.72rem',color:'var(--text-label)',marginBottom:'.2rem'}}>
                   <span>WhatsApp <span style={{color:'var(--text-muted)',fontWeight:400,fontSize:'.70rem'}}>(optional)</span></span>
                 </label>
-                {!isReadOnly && <CBx checked={form.whatsapp_same} onChange={e=>change({target:{name:'whatsapp_same',type:'checkbox',checked:e.target.checked}})} disabled={isReadOnly} label="Same as Phone"/>}
-                <input name="WhatsappNumber" type="tel" inputMode="numeric" maxLength={10}
+                {!isReadOnly && <CBx checked={form.whatsapp_same} navOrder="4" onChange={e=>change({target:{name:'whatsapp_same',type:'checkbox',checked:e.target.checked}})} disabled={isReadOnly} label="Same as Phone"/>}
+                <input name="WhatsappNumber" data-nav-order="5" type="tel" inputMode="numeric" maxLength={10}
                   className={`form-control${errors.WhatsappNumber?' is-invalid':''}`}
                   placeholder="10-digit mobile"
                   value={form.WhatsappNumber} onChange={change} disabled={isReadOnly||form.whatsapp_same}
@@ -494,7 +505,7 @@ const CustomerForm = () => {
                 <FErr msg={errors.WhatsappNumber}/>
               </div>
               <F label="Address" opt error={errors.Address}>
-                <input name="Address" type="text"
+                <input name="Address" data-nav-order="6" type="text"
                   className={`form-control${errors.Address?' is-invalid':''}`}
                   placeholder="Door No. / Street / Area (optional)"
                   value={form.Address} onChange={change} disabled={isReadOnly} style={inp('Address')}/>
@@ -507,12 +518,12 @@ const CustomerForm = () => {
               paddingBottom:'.3rem',borderBottom:'1px solid var(--divider)'}}>Location</div>
             <div className="customer-form-grid" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'.75rem',marginBottom:'.65rem',marginTop:'.65rem'}}>
               <F label="District" opt error={errors.District}>
-                <SearchableDropdown value={form.District} onChange={handleDistrictChange}
-                  options={ALL_DISTRICT_NAMES} placeholder="Search district…" disabled={isReadOnly} error={errors.District}/>
+                  <SearchableDropdown value={form.District} onChange={handleDistrictChange}
+                  options={ALL_DISTRICT_NAMES} placeholder="Search district…" disabled={isReadOnly} error={errors.District} navOrder="7"/>
               </F>
               <F label="State" opt error={errors.State}>
                 <SearchableDropdown value={form.State} onChange={handleStateChange}
-                  options={INDIA_STATES} placeholder="Search state…" disabled={isReadOnly} error={errors.State}/>
+                  options={INDIA_STATES} placeholder="Search state…" disabled={isReadOnly} error={errors.State} navOrder="8"/>
               </F>
             </div>
             <div className="customer-form-grid" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'.75rem',marginBottom:'.65rem'}}>
@@ -521,7 +532,7 @@ const CustomerForm = () => {
                   style={{...CI,background:'var(--bg-soft)',color:'var(--text-primary)',cursor:'not-allowed',fontWeight:600}}/>
               </F>
               <F label="Pincode" opt error={errors.PinCode}>
-                <input name="PinCode" type="text" inputMode="numeric" maxLength={6}
+                <input name="PinCode" data-nav-order="10" type="text" inputMode="numeric" maxLength={6}
                   className={`form-control${errors.PinCode?' is-invalid':''}`}
                   placeholder="6-digit pincode (optional)"
                   value={form.PinCode} onChange={change} disabled={isReadOnly}
@@ -544,7 +555,8 @@ const CustomerForm = () => {
                   border:`1.5px solid ${form.IsGSTCustomer?'var(--primary)':'var(--border-input)'}`,
                   borderRadius:'var(--radius)',background:form.IsGSTCustomer?'var(--primary-light)':'transparent',
                   transition:'all .15s',userSelect:'none'}}>
-                  <input type="checkbox" className="form-check-input" name="IsGSTCustomer" checked={form.IsGSTCustomer} onChange={change} disabled={isReadOnly}
+                <input type="checkbox" data-nav-order="11" className="form-check-input" name="IsGSTCustomer" checked={form.IsGSTCustomer}
+                  onChange={e => { change(e); if (e.target.checked) requestAnimationFrame(() => document.querySelector('input[name="GSTNo"]')?.focus()); }} disabled={isReadOnly}
                     style={{width:14,height:14,accentColor:BRAND,cursor:isReadOnly?'not-allowed':'pointer'}}/>
                   <span className="form-check-label" style={{fontSize:'.8rem',fontWeight:700,color:form.IsGSTCustomer?'var(--primary-dark)':'var(--text-muted)'}}>
                     GST Customer
@@ -555,7 +567,7 @@ const CustomerForm = () => {
                     <div style={{fontSize:'.67rem',fontWeight:700,color:'var(--text-label)',marginBottom:'.22rem',textTransform:'uppercase',letterSpacing:'.03em'}}>
                       GST Number <span style={{color:'var(--danger)'}}>*</span>
                     </div>
-                    <input name="GSTNo" type="text"
+                    <input name="GSTNo" data-nav-order="12" type="text"
                       className={`form-control${errors.GSTNo?' is-invalid':''}`}
                       placeholder="Enter 15-character GSTIN" value={form.GSTNo} onChange={change}
                       disabled={isReadOnly} maxLength={15}
@@ -576,8 +588,8 @@ const CustomerForm = () => {
                         borderRadius:'var(--radius)',background:form.PriceCodeType===pt?'var(--primary-light)':'transparent',
                         fontSize:'.8rem',fontWeight:700,color:form.PriceCodeType===pt?'var(--primary-dark)':'var(--text-muted)',
                         userSelect:'none',transition:'all .15s'}}>
-                        <input type="radio" name="PriceCodeType" value={pt}
-                          checked={form.PriceCodeType===pt} onChange={change} disabled={isReadOnly}
+                        <input type="radio" data-nav-order="13" name="PriceCodeType" value={pt}
+                          checked={form.PriceCodeType===pt} onChange={e => { change(e); if (pt === 'Fixed') requestAnimationFrame(() => document.querySelector('input[name="FixedPriceCodeID"]')?.focus()); }} disabled={isReadOnly}
                           style={{accentColor:BRAND}}/>
                         <span>{pt}</span>
                       </label>
@@ -599,14 +611,14 @@ const CustomerForm = () => {
                             fontSize:'.78rem',fontWeight:700,
                             color:String(form.FixedPriceCodeID)===String(pc.id)?'var(--primary-dark)':'var(--text-muted)',
                             userSelect:'none',transition:'all .15s'}}>
-                            <input type="radio" name="FixedPriceCodeID" value={pc.id}
+                            <input type="radio" data-nav-order="14" name="FixedPriceCodeID" value={pc.id}
                               checked={String(form.FixedPriceCodeID)===String(pc.id)}
                               onChange={change} disabled={isReadOnly}
                               style={{accentColor:BRAND}}/>
                             <span>{pc.DisplayLabel}</span>
                           </label>
                         ))}
-                        <button type="button" onClick={()=>setShowPriceRef(true)}
+                        <button type="button" data-keyboard-field="true" data-nav-order="15" onClick={()=>setShowPriceRef(true)}
                           style={{background:'none',border:'none',cursor:'pointer',color:'var(--primary)',fontSize:'.72rem',fontWeight:700,padding:'.28rem .4rem',textDecoration:'underline',textUnderlineOffset:2,alignSelf:'center',whiteSpace:'nowrap'}}>
                           📊 View Price Codes
                         </button>
@@ -632,7 +644,7 @@ const CustomerForm = () => {
         <div className="form-actions-bar customer-form-actions animate-in">
           <button type="button" className="btn btn-outline-secondary" onClick={() => goBackAfterCustomerEntry()} disabled={saving}>Cancel</button>
           {!isReadOnly && (
-            <button type="submit" className="btn btn-primary" disabled={saving}>
+            <button type="button" data-save-action="true" className="btn btn-primary" onClick={submit} disabled={saving}>
               {saving?<><Spin/> Saving…</>:(isEdit?'Update Customer':'Save Customer')}
             </button>
           )}

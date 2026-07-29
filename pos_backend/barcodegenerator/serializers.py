@@ -24,7 +24,7 @@ class BarcodePriceOptionSerializer(serializers.ModelSerializer):
 class BarcodeGeneratorSerializer(serializers.ModelSerializer):
     ProductName = serializers.CharField(source='ProductId.ProductName', read_only=True)
     ProductCode = serializers.CharField(source='ProductId.ProductCode', read_only=True)
-    PriceCodeName = serializers.CharField(source='Product_Price_Code_Id.PriceCodeID.DisplayLabel', read_only=True)
+    PriceCodeName = serializers.CharField(source='Product_Price_Code_Id', read_only=True)
     CreatedByUsername = serializers.CharField(source='CreatedBy.username', read_only=True)
 
     class Meta:
@@ -44,15 +44,6 @@ class BarcodeGeneratorSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Selected product is inactive.")
         return value
 
-    def validate_Product_Price_Code_Id(self, value):
-        if not value.PriceCodeID_id:
-            raise serializers.ValidationError("Selected price code is invalid.")
-        if not value.PriceCodeID.IsActive:
-            raise serializers.ValidationError("Selected price code is inactive.")
-        if not value.ProductId.IsActive:
-            raise serializers.ValidationError("Selected product is inactive.")
-        return value
-
     def validate_SellingPrice(self, value):
         if value <= 0:
             raise serializers.ValidationError("Selling Price must be greater than zero.")
@@ -65,14 +56,9 @@ class BarcodeGeneratorSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         product = attrs.get('ProductId')
-        price_row = attrs.get('Product_Price_Code_Id')
         selling_price = attrs.get('SellingPrice')
         mrp = attrs.get('MRP')
 
-        if product and price_row and price_row.ProductId_id != product.id:
-            raise serializers.ValidationError({
-                'Product_Price_Code_Id': 'Selected price code does not belong to this product.'
-            })
         if selling_price is not None and mrp is not None and mrp < selling_price:
             raise serializers.ValidationError({'MRP': 'MRP cannot be less than Selling Price.'})
         return attrs
