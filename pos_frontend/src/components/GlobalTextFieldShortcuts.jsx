@@ -143,10 +143,8 @@ const GlobalTextFieldShortcuts = () => {
       if (index >= 0) {
         options[index].dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
         highlighted.delete(target);
-        requestAnimationFrame(() => move(target, 1));
       } else {
         target.dispatchEvent(new CustomEvent('pos-dropdown-enter-empty', { bubbles: true }));
-        requestAnimationFrame(() => move(target, 1));
       }
       return true;
     };
@@ -191,9 +189,14 @@ const GlobalTextFieldShortcuts = () => {
     const handler = event => {
       const target = event.target;
       if (!(target instanceof HTMLElement)) return;
+      if (target.closest('[data-unit-entry-popup="true"], [data-price-entry-popup="true"]')) return;
 
-      if (handleCheckboxEnter(event, target)) return;
-      if (handleDropdownKey(event, target)) return;
+      // CustomerForm owns its conditional Enter flow. Keep this opt-out scoped
+      // to that form so the global shortcuts remain unchanged elsewhere.
+      const customerManaged = target.closest('[data-customer-form="true"]');
+
+      if (!customerManaged && handleCheckboxEnter(event, target)) return;
+      if (!customerManaged && handleDropdownKey(event, target)) return;
 
       if (event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey
         && event.key.toLowerCase() === 's') {
@@ -214,6 +217,8 @@ const GlobalTextFieldShortcuts = () => {
         setTimeout(() => submitting.delete(form), 3000);
         return;
       }
+
+      if (customerManaged) return;
 
       if (!isUsable(target)) return;
       const billingManaged = Boolean(target.closest('[data-billing-grid="true"], [data-billing-field="true"]'));

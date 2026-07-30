@@ -55,11 +55,16 @@ const UQC_LIST = [
 const UQCDropdown = ({ units, value, onChange, error }) => {
   const [q, setQ] = useState(value || '');
   const [open, setOpen] = useState(false);
+  const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const ref = useRef(null);
   const inputRef = useRef(null);
+  const listRef = useRef(null);
   const { menuClassName, mobileMenuStyle } = useMobileDropdownPlacement(ref, open);
   const allUQC = [...new Set(units.map(u => String(u.UQC || '').trim().toUpperCase()).filter(Boolean))].sort();
   const filtered = q.trim() ? allUQC.filter(u => u.toLowerCase().includes(q.toLowerCase())) : allUQC;
+  useEffect(() => {
+    if (open && highlightedIndex >= 0) listRef.current?.children[highlightedIndex]?.scrollIntoView?.({ block: 'nearest' });
+  }, [open, highlightedIndex, filtered.length]);
 
   useEffect(() => {
     if (document.activeElement === inputRef.current) return;
@@ -88,18 +93,33 @@ const UQCDropdown = ({ units, value, onChange, error }) => {
     <div ref={ref} style={{position:'relative'}}>
       <input ref={inputRef} type="text" autoComplete="off" placeholder="Search UQC Code..." value={q}
         style={{...CI,width:'100%',paddingRight:'1.6rem',border:`1.5px solid ${error?'var(--danger)':BRAND}`,borderRadius:6}}
-        onChange={e=>{setQ(e.target.value.toUpperCase());setOpen(true);onChange('');}}
-        onFocus={()=>setOpen(true)}
+        onChange={e=>{setQ(e.target.value.toUpperCase());setOpen(true);setHighlightedIndex(-1);onChange('');}}
+        onFocus={()=>{setOpen(true);setHighlightedIndex(-1);}}
+        onKeyDown={e=>{
+          if (e.key === 'Escape' && open) { e.preventDefault(); e.stopPropagation(); setOpen(false); setHighlightedIndex(-1); return; }
+          if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+            e.preventDefault(); e.stopPropagation();
+            if (!open) { setOpen(true); setHighlightedIndex(filtered.length ? (e.key === 'ArrowDown' ? 0 : filtered.length - 1) : -1); return; }
+            setHighlightedIndex(i => filtered.length ? (e.key === 'ArrowDown' ? Math.min(i < 0 ? 0 : i + 1, filtered.length - 1) : Math.max(i < 0 ? filtered.length - 1 : i - 1, 0)) : -1);
+            return;
+          }
+          if (e.key === 'Enter' && open) {
+            const selected = filtered[highlightedIndex] || filtered.find(u => u.toLowerCase() === q.toLowerCase().trim());
+            e.preventDefault(); e.stopPropagation();
+            if (selected) { onChange(selected); setQ(selected); setOpen(false); setHighlightedIndex(-1); }
+            else { setOpen(false); setHighlightedIndex(-1); }
+          }
+        }}
         onBlur={()=>setTimeout(()=>{ setOpen(false); if (!value) setQ(''); else setQ(value); }, 120)}/>
       <span style={{position:'absolute',right:'.5rem',top:'50%',transform:'translateY(-50%)',pointerEvents:'none',color:'var(--text-muted)',fontSize:'.6rem'}}>v</span>
       {open && filtered.length > 0 && (
-        <ul className={menuClassName} style={{...mobileMenuStyle,position:'absolute',top:'100%',left:0,right:0,zIndex:99999,
+        <ul ref={listRef} className={menuClassName} style={{...mobileMenuStyle,position:'absolute',top:'100%',left:0,right:0,zIndex:99999,
           background:'#fff',border:`1.5px solid ${BRAND}`,borderTop:'none',borderRadius:'0 0 6px 6px',
           boxShadow:'0 6px 20px rgba(0,0,0,.14)',maxHeight:160,overflowY:'auto',margin:0,padding:0,listStyle:'none'}}>
-          {filtered.map(u => (
-            <li key={u} onMouseDown={()=>{onChange(u);setQ(u);setOpen(false);}}
+          {filtered.map((u, i) => (
+            <li key={u} onMouseDown={()=>{onChange(u);setQ(u);setOpen(false);setHighlightedIndex(-1);}}
               style={{padding:'.3rem .65rem',fontSize:'.8rem',cursor:'pointer',
-                background:value===u?'var(--primary-light)':'transparent',fontWeight:value===u?700:400}}
+                background:highlightedIndex===i?'var(--primary-light)':value===u?'var(--primary-light)':'transparent',fontWeight:value===u?700:400}}
               onMouseEnter={e=>{if(value!==u)e.currentTarget.style.background='var(--scale-50)';}}
               onMouseLeave={e=>{if(value!==u)e.currentTarget.style.background='transparent';}}>{u}</li>
           ))}
@@ -112,15 +132,25 @@ const UQCDropdown = ({ units, value, onChange, error }) => {
 const UnitPopup = ({ units, onClose, onSaved }) => {
   const [unitName, setUnitName] = useState('');
   const [uqc,      setUqc]      = useState('');
+  const [decimal,  setDecimal]  = useState('');
   const [saving,   setSaving]   = useState(false);
   const [err,      setErr]      = useState('');
+  const unitNameRef = useRef(null);
+  const decimalRef = useRef(null);
+  const decimalEnterRef = useRef({ time: 0, timer: null });
+
+  useEffect(() => () => {
+    if (decimalEnterRef.current.timer) clearTimeout(decimalEnterRef.current.timer);
+  }, []);
 
   const save = async () => {
     if (saving) return;
     const n = unitName.trim();
     const u = uqc.trim().toUpperCase();
+    const d = decimal.trim();
     if (!n) { setErr('Unit name is required.'); return; }
     if (!u) { setErr('UQC Code is required.'); return; }
+    if (!d) { setErr('Decimal is required.'); return; }
     const byCode = units.find(x => String(x.UQC || '').toUpperCase() === u);
     const byName = units.find(x => x.UnitName.toLowerCase() === n.toLowerCase());
     if (byCode) {
@@ -133,7 +163,7 @@ const UnitPopup = ({ units, onClose, onSaved }) => {
     }
     setSaving(true); setErr('');
     try {
-      const created = await productService.createUnit({ UnitName: n, UQC: u, Decimal: false });
+      const created = await productService.createUnit({ UnitName: n, UQC: u, Decimal: d });
       onSaved(created);
     } catch (e) {
       const d = e.response?.data;
@@ -142,7 +172,7 @@ const UnitPopup = ({ units, onClose, onSaved }) => {
   };
 
   return createPortal(
-    <div onClick={onClose} style={{position:'fixed',inset:0,zIndex:99500,background:'rgba(0,0,0,.45)',display:'flex',alignItems:'center',justifyContent:'center',padding:'1rem'}}>
+    <div data-unit-entry-popup="true" onClick={onClose} style={{position:'fixed',inset:0,zIndex:99500,background:'rgba(0,0,0,.45)',display:'flex',alignItems:'center',justifyContent:'center',padding:'1rem'}}>
       <div onClick={e=>e.stopPropagation()} style={{background:'var(--card-bg)',borderRadius:12,boxShadow:'0 16px 48px rgba(0,0,0,.28)',padding:'1.25rem 1.375rem',width:'min(400px,96vw)',border:`1.5px solid ${BRAND}`}}>
         <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'1rem'}}>
           <span style={{fontWeight:800,fontSize:'.95rem',color:'var(--text-primary)',fontFamily:'var(--font-heading)'}}>Unit Entry</span>
@@ -152,15 +182,37 @@ const UnitPopup = ({ units, onClose, onSaved }) => {
           <label style={labelStyle}>UQC Code <span style={{color:'var(--danger)'}}>*</span></label>
           <input type="text" placeholder="e.g. PCS, KG, LTR" value={uqc}
             onChange={e=>{setUqc(e.target.value.toUpperCase());setErr('');}}
-            onKeyDown={e=>{if(e.key==='Enter')e.preventDefault();if(e.key==='Escape')onClose();}}
+            onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();e.stopPropagation();unitNameRef.current?.focus();}if(e.key==='Escape'){e.preventDefault();e.stopPropagation();onClose();}}}
             style={{...CI,width:'100%',border:`1.5px solid ${err?'var(--danger)':BRAND}`,borderRadius:6}}/>
           {err && <div style={errStyle}>{err}</div>}
         </div>
         <div style={{marginBottom:'.65rem'}}>
           <label style={labelStyle}>Unit Name <span style={{color:'var(--danger)'}}>*</span></label>
-          <input type="text" placeholder="e.g. Kilograms, Pieces, Litres" value={unitName}
+          <input ref={unitNameRef} type="text" placeholder="e.g. Kilograms, Pieces, Litres" value={unitName}
             onChange={e=>{setUnitName(e.target.value);setErr('');}}
-            onKeyDown={e=>{if(e.key==='Enter')e.preventDefault();if(e.key==='Escape')onClose();}}
+            onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();e.stopPropagation();decimalRef.current?.focus();}if(e.key==='Escape'){e.preventDefault();e.stopPropagation();onClose();}}}
+            style={{...CI,width:'100%',border:`1.5px solid ${err?'var(--danger)':BRAND}`,borderRadius:6}}/>
+        </div>
+        <div style={{marginBottom:'.65rem'}}>
+          <label style={labelStyle}>Decimal <span style={{color:'var(--danger)'}}>*</span></label>
+          <input ref={decimalRef} type="text" name="decimal" placeholder="Enter decimal value" value={decimal}
+            onChange={e=>{setDecimal(e.target.value);setErr('');}}
+            onKeyDown={e=>{
+              if(e.key==='Enter'){
+                e.preventDefault(); e.stopPropagation();
+                if(e.repeat) return;
+                const now = Date.now();
+                if(decimalEnterRef.current.timer && now - decimalEnterRef.current.time <= 350){
+                  clearTimeout(decimalEnterRef.current.timer);
+                  decimalEnterRef.current = { time: 0, timer: null };
+                  save();
+                  return;
+                }
+                const timer = setTimeout(()=>{ decimalEnterRef.current = { time: 0, timer: null }; }, 350);
+                decimalEnterRef.current = { time: now, timer };
+              }
+              if(e.key==='Escape'){e.preventDefault();e.stopPropagation();onClose();}
+            }}
             style={{...CI,width:'100%',border:`1.5px solid ${err?'var(--danger)':BRAND}`,borderRadius:6}}/>
         </div>
         <div style={{display:'flex',gap:'.625rem',justifyContent:'flex-end',marginTop:'.875rem'}}>
@@ -459,6 +511,7 @@ const UnitDropdown = ({ units, value, onChange, onUnitAdded, onUnitsChanged, dis
             onChange(u);
             setQ(unitLabel(u));
             setShowPopup(false);
+            requestAnimationFrame(() => inputRef.current?.focus());
           }}/>
       )}
     </div>
@@ -475,6 +528,13 @@ const PRODUCT_NAME_MAX = 200;
 const TAMIL_NAME_MAX = 200;
 const HSN_MAX = 20;
 const UNIT_MAX = 100;
+const normalizeNumericInput = rawValue => {
+  let value = String(rawValue ?? '').replace(/[^\d.]/g, '');
+  const parts = value.split('.');
+  if (parts.length > 2) value = `${parts[0]}.${parts.slice(1).join('')}`;
+  if (value.length > 1 && value.startsWith('0') && !value.startsWith('0.')) value = value.replace(/^0+/, '');
+  return value;
+};
 const API_FIELD_MAP = {
   ProductName: 'ProductName',
   product_name: 'ProductName',
@@ -516,13 +576,21 @@ const ProductForm = () => {
   const { isAdmin } = useAuth();
   const toast       = useToast();
   const isEdit      = id !== undefined && id !== 'new';
-  const quickSalesReturn = location.state?.returnToSales && location.state?.salesDraft;
+  const salesBillingSource = location.state?.source === 'sales-billing';
+  const quickSalesReturn = salesBillingSource && location.state?.salesDraft;
+  const quickFixedPriceContext = Boolean(
+    salesBillingSource && location.state?.salesDraft?.priceConfig?.PriceCodeType === 'Fixed'
+      && location.state?.salesDraft?.priceConfig?.FixedPriceCodeID
+  );
   const returnToSalesForm = useCallback((productCreated = false, createdProduct = null) => {
     navigate(location.state?.returnPath || '/billing/new', {
       state: {
+        source: productCreated && quickSalesReturn ? 'product-created-from-billing' : undefined,
+        originatingRowId: location.state?.salesDraft?.productTargetRowKey || null,
         restoreSalesDraft: location.state?.salesDraft,
         productCreated,
         createdProduct,
+        createdProductPrice: createdProduct?.product_price || null,
       },
     });
   }, [location.state, navigate]);
@@ -537,9 +605,29 @@ const ProductForm = () => {
   const [groups,      setGroups]      = useState([]);
   const [units,       setUnits]       = useState([]);
   const [groupTaxHint, setGroupTaxHint] = useState('');
+  const [priceEntryOpen, setPriceEntryOpen] = useState(false);
+  const [newProductPrice, setNewProductPrice] = useState('');
+  const [priceEntryError, setPriceEntryError] = useState('');
+  const priceEntryRef = useRef(null);
+  const priceEntrySaveRef = useRef(false);
   const productNameRef = useRef(null);
   const saveInFlightRef = useRef(false);
   const taxValueSourceRef = useRef({ HSNCode: 'empty', GSTPercent: 'empty' });
+
+  useEffect(() => {
+    if (priceEntryOpen) requestAnimationFrame(() => priceEntryRef.current?.focus());
+  }, [priceEntryOpen]);
+
+  const handleNewProductPriceChange = e => {
+    let value = e.target.value.replace(/[^\d.]/g, '');
+    const parts = value.split('.');
+    if (parts.length > 2) value = `${parts[0]}.${parts.slice(1).join('')}`;
+    if (value.length > 1 && value.startsWith('0') && !value.startsWith('0.')) {
+      value = value.replace(/^0+/, '') || '0';
+    }
+    setNewProductPrice(value);
+    setPriceEntryError('');
+  };
 
   /* ── fetch groups + units once ── */
   useEffect(() => {
@@ -572,7 +660,7 @@ const ProductForm = () => {
           GroupId:          data.GroupId != null ? data.GroupId : '',
           ProductName:      data.ProductName || '',
           ProductNameTamil: data.ProductNameTamil || '',
-          HSNCode:          data.HSNCode || '',
+          HSNCode:          String(data.HSNCode || '').trim() === '0000' ? '' : (data.HSNCode || ''),
           GSTPercent:       data.GSTPercent != null ? String(data.GSTPercent) : '',
           Quantity:         data.Quantity != null ? String(data.Quantity) : '',
           Units:            data.UnitName || data.Units || '',
@@ -593,7 +681,12 @@ const ProductForm = () => {
   }, [id, isEdit]);
 
   const handleChange = useCallback((e) => {
-    const { name, value } = e.target;
+    const { name } = e.target;
+    const value = name === 'HSNCode'
+      ? e.target.value.replace(/\D/g, '')
+      : name === 'GSTPercent' || name === 'Quantity'
+        ? normalizeNumericInput(e.target.value)
+      : e.target.value;
     if (name === 'HSNCode' || name === 'GSTPercent') {
       taxValueSourceRef.current[name] = String(value).trim() === '' ? 'empty' : 'manual';
     }
@@ -649,6 +742,66 @@ const ProductForm = () => {
     return e;
   };
 
+  const handleDescriptionKeyDown = e => {
+    if (e.key !== 'Enter' || e.repeat || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (!salesBillingSource) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const errs = validate();
+    if (Object.keys(errs).length) {
+      setErrors(errs);
+      requestAnimationFrame(() => {
+        document.querySelector('form [aria-invalid="true"], form .is-invalid')?.focus();
+      });
+      return;
+    }
+    if (quickFixedPriceContext && !priceEntryOpen) setPriceEntryOpen(true);
+  };
+
+  const saveQuickProductWithPrice = async () => {
+    if (priceEntrySaveRef.current || saving) return;
+    const errs = validate();
+    const price = Number(newProductPrice);
+    const fixedPriceCodeID = location.state?.salesDraft?.priceConfig?.FixedPriceCodeID;
+    if (!Number.isFinite(price) || price <= 0) {
+      setPriceEntryError('Enter a valid positive price.');
+      return;
+    }
+    if (!fixedPriceCodeID) {
+      setPriceEntryError('A fixed customer price code is required.');
+      return;
+    }
+    if (Object.keys(errs).length) {
+      setErrors(errs);
+      setPriceEntryError('Please complete the required Product fields first.');
+      setPriceEntryOpen(false);
+      return;
+    }
+    priceEntrySaveRef.current = true;
+    setSaving(true); setPriceEntryError('');
+    const payload = {
+      ProductName: form.ProductName.trim(), ProductNameTamil: form.ProductNameTamil.trim() || null,
+      Units: form.Units.trim(), UnitId: form.UnitId ? parseInt(form.UnitId, 10) : null,
+      Description: form.Description.trim() || null, IsActive: form.IsActive,
+      GroupId: form.GroupId ? parseInt(form.GroupId, 10) : null,
+      HSNCode: form.HSNCode.trim(), GSTPercent: Number(form.GSTPercent),
+      ...(form.Quantity !== '' ? { Quantity: parseInt(form.Quantity, 10) } : {}),
+      FixedPriceCodeID: fixedPriceCodeID, ProductPrice: newProductPrice.trim(),
+    };
+    try {
+      const createdProduct = await productService.createProductWithFixedPrice(payload);
+      toast.success('Saved', 'Product and fixed price saved successfully.');
+      setPriceEntryOpen(false);
+      returnToSalesForm(true, createdProduct);
+    } catch (err) {
+      const data = err.response?.data;
+      setPriceEntryError(data?.ProductPrice?.[0] || data?.detail || 'Failed to save product price.');
+    } finally {
+      priceEntrySaveRef.current = false;
+      setSaving(false);
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     const formElement = e.currentTarget?.closest?.('form') || e.currentTarget;
@@ -662,6 +815,11 @@ const ProductForm = () => {
         first?.focus();
         first?.scrollIntoView?.({ block: 'center', inline: 'nearest', behavior: 'smooth' });
       });
+      return;
+    }
+    if (quickFixedPriceContext && !priceEntryOpen) {
+      setPriceEntryError('');
+      setPriceEntryOpen(true);
       return;
     }
     saveInFlightRef.current = true;
@@ -758,6 +916,38 @@ const ProductForm = () => {
 
   return (
     <Layout>
+      {priceEntryOpen && quickFixedPriceContext && (
+        <div data-price-entry-popup="true" onClick={()=>{if(!saving)setPriceEntryOpen(false);}}
+          style={{position:'fixed',inset:0,zIndex:99600,background:'rgba(0,0,0,.45)',display:'flex',alignItems:'center',justifyContent:'center',padding:'1rem'}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:'var(--card-bg)',borderRadius:12,boxShadow:'0 16px 48px rgba(0,0,0,.28)',padding:'1.25rem 1.375rem',width:'min(420px,96vw)',border:`1.5px solid ${BRAND}`}}>
+            <h3 style={{margin:'0 0 1rem',fontSize:'.95rem',fontFamily:'var(--font-heading)',color:'var(--text-primary)'}}>Set Price for New Product</h3>
+            <div style={{marginBottom:'.65rem'}}>
+              <label style={labelStyle}>Product Name</label>
+              <input type="text" value={form.ProductName} readOnly style={{...CI,width:'100%',background:'var(--bg-soft)',border:'1.5px solid var(--border-input)',borderRadius:6}}/>
+            </div>
+            <div style={{marginBottom:'.65rem'}}>
+              <label style={labelStyle}>Price Code</label>
+              <input type="text" value={location.state?.salesDraft?.priceConfig?.FixedLabel || location.state?.salesDraft?.priceConfig?.FixedPriceCodeName || 'Fixed'} readOnly style={{...CI,width:'100%',background:'var(--bg-soft)',border:'1.5px solid var(--border-input)',borderRadius:6}}/>
+            </div>
+            <div style={{marginBottom:'.65rem'}}>
+              <label style={labelStyle}>Price <Req/></label>
+              <input ref={priceEntryRef} type="text" inputMode="decimal" value={newProductPrice}
+                placeholder="0.00" onChange={handleNewProductPriceChange}
+                onFocus={() => { if (/^0+$/.test(newProductPrice)) setNewProductPrice(''); }}
+                onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();e.stopPropagation();}if(e.key==='Escape'){e.preventDefault();e.stopPropagation();if(!saving)setPriceEntryOpen(false);}if(e.altKey&&!e.ctrlKey&&!e.metaKey&&e.key.toLowerCase()==='s'){e.preventDefault();e.stopPropagation();if(!e.repeat)saveQuickProductWithPrice();}}}
+                style={{...CI,width:'100%',border:`1.5px solid ${priceEntryError?'var(--danger)':'var(--border-input)'}`,borderRadius:6}}/>
+              {priceEntryError && <div style={errStyle}>{priceEntryError}</div>}
+            </div>
+            <div style={{display:'flex',gap:'.625rem',justifyContent:'flex-end',marginTop:'.875rem'}}>
+              <button type="button" onClick={()=>setPriceEntryOpen(false)} disabled={saving} style={{padding:'.45rem 1rem',borderRadius:7,border:'1.5px solid var(--border-input)',background:'transparent',cursor:'pointer',fontSize:'.82rem',fontWeight:600}}>Cancel</button>
+              <button type="button" data-save-action="true" onClick={saveQuickProductWithPrice} disabled={saving}
+                style={{padding:'.45rem 1.125rem',borderRadius:7,border:'none',background:BRAND,color:'#fff',fontWeight:700,cursor:saving?'not-allowed':'pointer',fontSize:'.82rem'}}>
+                {saving?'Saving…':'Save'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="page-header product-page-header professional-form-title-card animate-in">
         <div>
           <h2 style={{fontFamily:'var(--font-heading)',fontWeight:800}}>
@@ -844,11 +1034,12 @@ const ProductForm = () => {
                     setForm(p=>({...p,UnitId:u?.id || '',Units:u?.UnitName || ''}));
                     if(errors.Units)setErrors(p=>({...p,Units:''}));
                   }}
-                  onUnitAdded={u => {
-                    setUnits(prev => (
-                      prev.some(item => item.id === u.id)
-                        ? prev
-                        : [...prev, u].sort((a,b)=>a.UnitName.localeCompare(b.UnitName))
+          onUnitAdded={u => {
+            setUnits(prev => (
+              prev.some(item => item.id === u.id
+                || (u.UQC && item.UQC && String(item.UQC).toLowerCase() === String(u.UQC).toLowerCase()))
+                ? prev
+                : [...prev, u].sort((a,b)=>a.UnitName.localeCompare(b.UnitName))
                     ));
                     toast.success('Added', 'Unit added successfully.');
                   }}
@@ -865,7 +1056,7 @@ const ProductForm = () => {
                 <label style={labelStyle}>Quantity <Opt/></label>
                 <input name="Quantity" data-nav-order="5" type="number" min="0" step="1"
                   className={`form-control${errors.Quantity?' is-invalid':''}`}
-                  placeholder="0"
+                  placeholder="Enter quantity"
                   value={form.Quantity} onChange={handleChange} disabled={isReadOnly}
                   style={{...CI, width:'100%'}}/>
                 {errors.Quantity && <div style={errStyle}>{errors.Quantity}</div>}
@@ -887,7 +1078,7 @@ const ProductForm = () => {
                   <label style={labelStyle}>HSN <Req/></label>
                   <input name="HSNCode" data-nav-order="6" type="text" className={`form-control${errors.HSNCode?' is-invalid':''}`}
                     aria-invalid={Boolean(errors.HSNCode)}
-                    placeholder="e.g. 1905"
+                    placeholder="Enter HSN code"
                     value={form.HSNCode} onChange={handleChange} disabled={isReadOnly}
                     style={{...CI, width:'100%'}}/>
                   {errors.HSNCode && <div style={errStyle}>{errors.HSNCode}</div>}
@@ -897,7 +1088,7 @@ const ProductForm = () => {
                   <input name="GSTPercent" data-nav-order="7" type="number" min="0" max="100" step="1"
                     className={`form-control${errors.GSTPercent?' is-invalid':''}`}
                     aria-invalid={Boolean(errors.GSTPercent)}
-                    placeholder="0"
+                    placeholder="Enter GST percentage"
                     value={form.GSTPercent} onChange={handleChange} disabled={isReadOnly}
                     style={{...CI, width:'100%'}}/>
                   {errors.GSTPercent && <div style={errStyle}>{errors.GSTPercent}</div>}
@@ -910,7 +1101,7 @@ const ProductForm = () => {
               <label style={labelStyle}>Description <Opt/></label>
               <textarea name="Description" data-nav-order="8" className="form-control"
                 placeholder="Brief product description"
-                value={form.Description} onChange={handleChange} disabled={isReadOnly}
+                value={form.Description} onChange={handleChange} onKeyDown={handleDescriptionKeyDown} disabled={isReadOnly}
                 style={{width:'100%',fontSize:'.82rem',resize:'vertical',minHeight:64,padding:'.5rem .65rem'}}/>
               {errors.Description && <div style={errStyle}>{errors.Description}</div>}
             </div>

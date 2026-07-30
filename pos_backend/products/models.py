@@ -171,7 +171,7 @@ class Unit(models.Model):
     """
     UnitName  = models.CharField(max_length=200, unique=True)
     UQC       = models.CharField(max_length=50, null=True, blank=True)
-    Decimal   = models.BooleanField(default=False)
+    Decimal   = models.CharField(max_length=50, default='')
     CreatedOn = models.DateTimeField(auto_now_add=True)
     CreatedBy = models.ForeignKey(
         settings.AUTH_USER_MODEL,

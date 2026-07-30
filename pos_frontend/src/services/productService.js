@@ -183,6 +183,25 @@ const productService = {
     return response.data;
   },
 
+  createProductWithFixedPrice: async (data) => {
+    const response = await api.post('/products/create-with-fixed-price/', data);
+    notifyProductsChanged();
+    const result = response.data;
+    if (!result?.product) return result;
+    return {
+      ...result.product,
+      product_price: result.product_price || null,
+      prices: Array.isArray(result.product.prices)
+        ? result.product.prices
+        : result.product_price ? [{
+            PriceCodeID: result.product_price.PriceCodeID ?? result.product_price.price_code_id,
+            PriceCodeName: result.product_price.PriceName ?? result.product_price.price_code_name,
+            ProductPrice: result.product_price.ProductPrice ?? result.product_price.price,
+          }]
+          : [],
+    };
+  },
+
   /**
    * Update price record (Admin only)
    */
