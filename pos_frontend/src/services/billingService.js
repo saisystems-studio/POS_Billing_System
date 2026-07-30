@@ -8,6 +8,13 @@ const BILLING_PRODUCTS_CACHE_MAX = 30;
 const billingProductsCache = new Map();
 const billingProductsRequests = new Map();
 
+const normalizeListResponse = data => {
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data?.results)) return data.results;
+  if (Array.isArray(data?.data)) return data.data;
+  return [];
+};
+
 const stableKey = (params = {}) => JSON.stringify(
   Object.keys(params)
     .sort()
@@ -55,10 +62,10 @@ const billingService = {
     const res = await api.get('/billing/customers/', { params });
     // Handle both plain array and paginated {count, results} shape
     const data = res.data;
-    return Array.isArray(data) ? data : (data?.results ?? []);
+    return normalizeListResponse(data);
   },
   getProductsForBilling: async (search = '', options = {}) => {
-    const limit = options.limit || 50;
+    const limit = options.limit || 20;
     const cursor = options.cursor || null;
     const params = {
       ...(search ? { search } : {}),
@@ -76,13 +83,11 @@ const billingService = {
       dedupe: false,
     }).then(res => {
       const data = res.data;
-      const page = Array.isArray(data)
-        ? { results: data, next_cursor: null, has_more: false }
-        : {
-            results: Array.isArray(data?.results) ? data.results : [],
-            next_cursor: data?.next_cursor ?? null,
-            has_more: Boolean(data?.has_more),
-          };
+      const page = {
+        results: normalizeListResponse(data),
+        next_cursor: data?.next_cursor ?? null,
+        has_more: Boolean(data?.has_more),
+      };
       setCachedBillingProducts(key, page);
       return page;
     }).finally(() => {
@@ -91,6 +96,20 @@ const billingService = {
 
     billingProductsRequests.set(key, request);
     return request;
+  },
+  getAllProductsForBilling: async () => {
+    const all = [];
+    const seen = new Set();
+    let cursor = null;
+    do {
+      const page = await billingService.getProductsForBilling('', { limit: 100, cursor });
+      const rows = Array.isArray(page) ? page : (page?.results ?? []);
+      rows.forEach(row => {
+        if (row?.id && !seen.has(row.id)) { seen.add(row.id); all.push(row); }
+      });
+      cursor = page?.has_more ? page.next_cursor : null;
+    } while (cursor);
+    return all;
   },
   getPriceCodes: async () => {
     if (priceCodesCache) return priceCodesCache;

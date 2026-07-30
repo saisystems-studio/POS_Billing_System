@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { Plus } from 'lucide-react';
@@ -98,19 +98,12 @@ const CustomerSearchDropdown = ({ customers, value, onChange, disabled, onNaviga
   const blurTimer = useRef(null);
   const pos = useDropdownPos(inputRef, open);
 
-  const sel = customers.find(c => c.id === value);
+  const safeCustomers = Array.isArray(customers) ? customers.filter(Boolean) : [];
+  const sel = safeCustomers.find(c => c.id === value);
   useEffect(() => {
     if (document.activeElement === inputRef.current) return;
     setQ(sel ? sel.CustomerName : '');
   }, [value, customers, inputRef, sel]); // eslint-disable-line
-
-  useEffect(() => {
-    if (!open) return;
-    const t = setTimeout(() => {
-      onSearch?.(q);
-    }, 250);
-    return () => clearTimeout(t);
-  }, [open, q, onSearch]);
 
   useEffect(() => {
     if (!open) return;
@@ -140,11 +133,11 @@ const CustomerSearchDropdown = ({ customers, value, onChange, disabled, onNaviga
   }, [disabled, inputRef, onChange]);
 
   const term = q.trim().toLowerCase();
-  const filtered = !term ? customers : customers.filter(c =>
-    c.CustomerName.toLowerCase().includes(term) ||
+  const filtered = useMemo(() => !term ? safeCustomers : safeCustomers.filter(c =>
+    String(c.CustomerName || '').toLowerCase().includes(term) ||
     (c.CustomerCode || '').toLowerCase().includes(term) ||
     (c.PhoneNumber || '').includes(term)
-  );
+  ), [safeCustomers, term]);
 
   useEffect(() => {
     if (!open) return;
@@ -191,10 +184,12 @@ const CustomerSearchDropdown = ({ customers, value, onChange, disabled, onNaviga
       zIndex:99999,background:'#fff',border:`1.5px solid ${BRAND}`,borderTop:'none',
       borderRadius:'0 0 7px 7px',boxShadow:'0 8px 24px rgba(0,0,0,.18)',
       maxHeight:pos.maxHeight,overflowY:'auto',margin:0,padding:0,listStyle:'none','--mobile-dropdown-max-height':`${pos.maxHeight}px`}}>
-      {error && filtered.length === 0
+      {loading
+          ? <li style={{padding:'.5rem .75rem',color:'var(--text-muted)',fontSize:'.8rem',fontStyle:'italic'}}>Loading customers...</li>
+          : error && filtered.length === 0
           ? <li style={{padding:'.5rem .75rem',color:'var(--danger)',fontSize:'.8rem',fontWeight:600}}>{error}</li>
           : filtered.length === 0
-            ? <li style={{padding:'.5rem .75rem',color:'var(--text-muted)',fontSize:'.8rem',fontStyle:'italic'}}>No matching customers found</li>
+            ? <li style={{padding:'.5rem .75rem',color:'var(--text-muted)',fontSize:'.8rem',fontStyle:'italic'}}>{term ? 'No matching customers found' : 'No customers available'}</li>
         : filtered.map((c, i) => (
           <li key={c.id} onMouseDown={e => { e.preventDefault(); pick(c); }}
             style={{padding:'.4rem .75rem',fontSize:'.82rem',cursor:'pointer',
@@ -265,19 +260,12 @@ const PriceCodeDropdown = ({
 
   const priceCodeOrder = { A: 1, B: 2, C: 3, D: 4, Retail: 5 };
   const validPriceCodes = priceCodes
-    .filter(pc => pc?.id != null && Object.hasOwn(priceCodeOrder, pc?.PriceCodeName))
+    .filter(pc => pc?.id != null && Object.prototype.hasOwnProperty.call(priceCodeOrder, pc?.PriceCodeName))
     .sort((a, b) => priceCodeOrder[a.PriceCodeName] - priceCodeOrder[b.PriceCodeName]);
-  const manualRateOption = {
-    id: null,
-    PriceCodeName: 'Select price code',
-    DisplayLabel: 'Select price code',
-    isManualRate: true,
-  };
-  const navigablePriceCodes = [manualRateOption, ...validPriceCodes];
+  const navigablePriceCodes = validPriceCodes;
   const sel = validPriceCodes.find(p => p.id === value);
 
   const label = pc => {
-    if (pc.isManualRate) return pc.DisplayLabel;
     const displayName = pc.PriceCodeName === 'Retail' ? 'Retail' : `Price ${pc.PriceCodeName}`;
     if (!productData) return displayName;
     const tier = (productData.prices || []).find(p => p.PriceCodeID === pc.id);
@@ -305,24 +293,22 @@ const PriceCodeDropdown = ({
   }, [open]);
 
   const term = search.trim().toLowerCase();
-  const filtered = !term ? navigablePriceCodes : navigablePriceCodes.filter(pc => (
-    pc.isManualRate
-      ? pc.DisplayLabel.toLowerCase().startsWith(term)
-      : pc.PriceCodeName.toLowerCase().includes(term)
-        || pc.DisplayLabel.toLowerCase().includes(term)
-  ));
+  const filtered = !term ? navigablePriceCodes : navigablePriceCodes.filter(pc =>
+    pc.PriceCodeName.toLowerCase().includes(term)
+      || pc.DisplayLabel.toLowerCase().includes(term)
+  );
 
   const pick = pc => {
-    onChange(pc.isManualRate ? null : pc.id);
+    onChange(pc.id);
     setOpen(false);
     setSearch('');
     setHi(0);
-    setTimeout(() => onNext?.(pc.isManualRate ? null : pc.id), 60);
+    setTimeout(() => inputRef.current?.focus(), 0);
   };
 
   const openDrop = () => {
     if (disabled) return;
-    setHi(sel ? Math.max(1, navigablePriceCodes.indexOf(sel)) : 0);
+    setHi(sel ? Math.max(0, navigablePriceCodes.indexOf(sel)) : 0);
     setOpen(true);
   };
 
@@ -490,14 +476,14 @@ const PriceCodeDropdown = ({
                 No price codes available for this product
               </li>
             ) : filtered.map((pc, i) => (
-              <li key={pc.isManualRate ? 'manual-rate' : pc.id}
+              <li key={pc.id}
                 onMouseDown={e => { e.preventDefault(); pick(pc); }}
                 onMouseEnter={() => setHi(i)}
                 style={{
                   padding:'.38rem .65rem', fontSize:'.82rem', cursor:'pointer',
-                  background: (!value && pc.isManualRate) || value === pc.id ? BRAND_LIGHT : hi === i ? '#f5f0eb' : 'transparent',
-                  fontWeight: ((!value && pc.isManualRate) || value === pc.id) ? 700 : 400,
-                  color: ((!value && pc.isManualRate) || value === pc.id) ? BRAND : 'var(--text-primary)',
+                  background: value === pc.id ? BRAND_LIGHT : hi === i ? '#f5f0eb' : 'transparent',
+                  fontWeight: value === pc.id ? 700 : 400,
+                  color: value === pc.id ? BRAND : 'var(--text-primary)',
                   borderBottom: i < filtered.length - 1 ? '1px solid var(--divider)' : 'none',
                   transition:'background .1s',
                 }}>
@@ -519,7 +505,7 @@ const PRODUCT_DROPDOWN_HEIGHT = 210;
 const PRODUCT_VISIBLE_OVERSCAN = 4;
 
 const ProductSearchDropdown = ({
-  products, value, onChange, disabled, inputRef: extRef, onNext, onPrev,
+  products, selectedProduct, value, onChange, disabled, inputRef: extRef, onNext, onPrev,
   onSearch, onRetry, onLoadMore, loading, loadingMore, hasMore, error,
   moveToActionsOnEmptyEnter = false, onBackspaceClear,
 }) => {
@@ -534,7 +520,9 @@ const ProductSearchDropdown = ({
   const inputRef  = extRef || useRef(null); // eslint-disable-line
   const suppressNextOpenRef = useRef(false);
 
-  const sel = products.find(p => p.id === value);
+  const safeProducts = Array.isArray(products) ? products.filter(Boolean) : [];
+  const sel = safeProducts.find(p => p.id === value)
+    || (selectedProduct?.id === value ? selectedProduct : null);
   const displayText = sel ? sel.ProductName : '';
 
   /* Close on outside click */
@@ -555,16 +543,15 @@ const ProductSearchDropdown = ({
     if (open) setTimeout(() => searchRef.current?.focus(), 30);
   }, [open]);
 
+  // Load the first page when opened and debounce server-side searches.
   useEffect(() => {
-    if (!open) return;
-    const t = setTimeout(() => {
-      onSearch?.(search);
-    }, 250);
-    return () => clearTimeout(t);
+    if (!open) return undefined;
+    const timer = setTimeout(() => onSearch?.(search), 250);
+    return () => clearTimeout(timer);
   }, [open, search, onSearch]);
 
   const term = search.trim().toLowerCase();
-  const filtered = !term ? products : products.filter(p =>
+  const filtered = useMemo(() => !term ? safeProducts : safeProducts.filter(p =>
     (p.ProductName || '').toLowerCase().includes(term) ||
     (p.ProductNameTamil || '').toLowerCase().includes(term) ||
     (p.ProductCode || '').toLowerCase().includes(term) ||
@@ -573,7 +560,7 @@ const ProductSearchDropdown = ({
     (p.Units || '').toLowerCase().includes(term) ||
     (p.UnitName || '').toLowerCase().includes(term) ||
     (p.UnitCode || '').toLowerCase().includes(term)
-  );
+  ), [safeProducts, term]);
   const visibleCount = Math.ceil(PRODUCT_DROPDOWN_HEIGHT / PRODUCT_OPTION_HEIGHT) + PRODUCT_VISIBLE_OVERSCAN;
   const visibleStart = Math.max(0, Math.floor(scrollTop / PRODUCT_OPTION_HEIGHT) - PRODUCT_VISIBLE_OVERSCAN);
   const visibleItems = filtered.slice(visibleStart, visibleStart + visibleCount);
@@ -590,12 +577,12 @@ const ProductSearchDropdown = ({
     setSearch('');
     setHi(0);
     setScrollTop(0);
-    setTimeout(() => onNext?.(p.id), 60);
+    setTimeout(() => inputRef.current?.focus(), 0);
   };
 
   const openDrop = () => {
     if (disabled) return;
-    setHi(sel ? Math.max(0, products.indexOf(sel)) : 0);
+    setHi(sel ? Math.max(0, safeProducts.indexOf(sel)) : 0);
     setScrollTop(0);
     setOpen(true);
   };
@@ -700,9 +687,7 @@ const ProductSearchDropdown = ({
   const handleListScroll = e => {
     const el = e.currentTarget;
     setScrollTop(el.scrollTop);
-    if (hasMore && !loading && !loadingMore && el.scrollHeight - el.scrollTop - el.clientHeight < PRODUCT_OPTION_HEIGHT * 3) {
-      onLoadMore?.(search);
-    }
+    if (hasMore && !loading && !loadingMore && el.scrollHeight - el.scrollTop - el.clientHeight < PRODUCT_OPTION_HEIGHT * 3) onLoadMore?.(search);
   };
 
   return (
@@ -778,9 +763,9 @@ const ProductSearchDropdown = ({
           </div>
           {/* Options list — scrollable */}
           <ul ref={listRef} onScroll={handleListScroll} style={{margin:0, padding:0, listStyle:'none', height:listHeight, maxHeight:PRODUCT_DROPDOWN_HEIGHT, overflowY:'auto', overflowX:'hidden', overscrollBehavior:'contain', flex:'0 0 auto'}}>
-            {loading && term ? (
+            {loading ? (
               <li style={{padding:'.45rem .65rem', color:'var(--text-muted)', fontSize:'.78rem', fontStyle:'italic'}}>
-                Searching products...
+                Loading products...
               </li>
             ) : error && filtered.length === 0 ? (
               <li style={{padding:'.45rem .65rem', color:'var(--danger)', fontSize:'.78rem', fontWeight:600}}>
@@ -798,7 +783,7 @@ const ProductSearchDropdown = ({
               </li>
             ) : filtered.length === 0 ? (
               <li style={{padding:'.45rem .65rem', color:'var(--text-muted)', fontSize:'.78rem', fontStyle:'italic'}}>
-                No matching products found
+                {term ? 'No matching products found' : 'No products available'}
               </li>
             ) : (
               <>
@@ -879,8 +864,12 @@ const fmtMoney = v => {
 
 const getRateForCode = (productData, pcID) => {
   if (!productData || !pcID) return '';
-  const tier = (productData.prices || []).find(p => p.PriceCodeID === pcID);
-  return tier ? String(tier.ProductPrice) : '';
+  const tier = (Array.isArray(productData.prices) ? productData.prices : []).find(
+    p => String(p?.PriceCodeID ?? '') === String(pcID)
+  );
+  if (!tier) return '';
+  const value = Number(tier.ProductPrice ?? tier.ProductPriceValue ?? tier.Price ?? tier.rate);
+  return Number.isFinite(value) ? String(value) : '';
 };
 
 const productOptionFromBillLine = line => ({
@@ -961,8 +950,8 @@ const BillingForm = () => {
   const [customers,  setCustomers]  = useState([]);
   const [products,   setProducts]   = useState([]);
   const [priceCodes, setPriceCodes] = useState([]);
-  const [customersLoading, setCustomersLoading] = useState(false);
-  const [productsLoading, setProductsLoading] = useState(false);
+  const [customersLoading, setCustomersLoading] = useState(true);
+  const [productsLoading, setProductsLoading] = useState(true);
   const [productsLoadingMore, setProductsLoadingMore] = useState(false);
   const [customersError, setCustomersError] = useState('');
   const [productsError, setProductsError] = useState('');
@@ -986,6 +975,8 @@ const BillingForm = () => {
   const rowsRef = useRef(rows);
   rowsRef.current = rows;
   const rowCloseRefs = useRef([]);
+  const pendingProductFocusRef = useRef(null);
+  const lastFocusedBillingRowRef = useRef(null);
   const pageRef = useRef(null);
   const cancelBtnRef = useRef(null);
   const saveBtnRef = useRef(null);
@@ -1017,7 +1008,7 @@ const BillingForm = () => {
   }, [products.length]);
 
   /* Active navigable columns (product → qty → [priceCode if Random] → rate) */
-  const activeCols = useCallback(() => {
+  const activeCols = useCallback((row = null) => {
     const cols = [COL_PRODUCT, COL_QTY];
     if (!isFixed) cols.push(COL_PRICE_CODE);
     cols.push(COL_RATE);
@@ -1053,7 +1044,7 @@ const BillingForm = () => {
   const focusLastGridField = useCallback(() => {
     setTimeout(() => {
       for (let rowIdx = rows.length - 1; rowIdx >= 0; rowIdx -= 1) {
-        const cols = activeCols();
+        const cols = activeCols(rows[rowIdx]);
         for (let colIdx = cols.length - 1; colIdx >= 0; colIdx -= 1) {
           const el = cellRefs.current[rows[rowIdx]?._key]?.[cols[colIdx]];
           if (el && !el.disabled && el.tabIndex !== -1) {
@@ -1151,25 +1142,46 @@ const BillingForm = () => {
 
   const completeRowCreateNextAndFocusProduct = useCallback((rowIdx, currentPatch = null) => {
     const sourceRows = currentPatch
-      ? rows.map((r, i) => (i === rowIdx ? { ...r, ...currentPatch } : r))
-      : rows;
+      ? rowsRef.current.map((r, i) => (i === rowIdx ? { ...r, ...currentPatch } : r))
+      : rowsRef.current;
     const current = sourceRows[rowIdx];
     if (!isRowComplete(current)) {
       focusCell(rowIdx, COL_RATE);
       return;
     }
-    setRows(prev => keepSingleReadyBlankRow(
-      currentPatch ? prev.map((r, i) => (i === rowIdx ? { ...r, ...currentPatch } : r)) : prev
-    ));
-    setTimeout(() => focusFirstBlankProduct(), 60);
-  }, [focusCell, focusFirstBlankProduct, keepSingleReadyBlankRow, rows]);
+    setRows(prev => {
+      const next = currentPatch
+        ? prev.map((r, i) => (i === rowIdx ? { ...r, ...currentPatch } : r))
+        : [...prev];
+      let blankIdx = next.findIndex((r, i) => i !== rowIdx && isBlankRow(r));
+      if (blankIdx < 0) {
+        blankIdx = next.length;
+        next.push(makeReadyBlankRow());
+      }
+      const blank = next[blankIdx];
+      pendingProductFocusRef.current = blank._key;
+      if (blank._inactive) next[blankIdx] = { ...blank, _inactive: false };
+      return next;
+    });
+  }, [focusCell, makeReadyBlankRow]);
+
+  const completeCalculatedRow = useCallback((rowIdx, currentPatch) => {
+    const previous = rowsRef.current[rowIdx];
+    if (!previous) return;
+    const next = { ...previous, ...currentPatch };
+    const previousAmount = (parseFloat(previous.Qty) || 0) * getEffectiveRate(previous);
+    const calculatedAmount = (parseFloat(next.Qty) || 0) * getEffectiveRate(next);
+    if (previousAmount > 0 || !Number.isFinite(calculatedAmount) || calculatedAmount <= 0) return;
+    if (!isRowComplete(next)) return;
+    completeRowCreateNextAndFocusProduct(rowIdx, currentPatch);
+  }, [completeRowCreateNextAndFocusProduct]);
 
   /* ── navigate to next/prev cell ── */
   const navigateCell = useCallback((rowIdx, col, dir, currentPatch = null) => {
     const sourceRows = currentPatch
       ? rows.map((r, i) => (i === rowIdx ? { ...r, ...currentPatch } : r))
       : rows;
-    const cols = activeCols();
+    const cols = activeCols(sourceRows[rowIdx]);
     const colIdx = cols.indexOf(col);
     if (colIdx === -1) return;
 
@@ -1188,7 +1200,7 @@ const BillingForm = () => {
         return;
       }
       if (isFixed) {
-        if (!isRowComplete(current) && !current?._onSpotProduct) {
+        if (!isRowComplete(current)) {
           setRowErrors(prev => ({ ...prev, [rowIdx]: 'A valid fixed price is required.' }));
           focusCell(rowIdx, COL_QTY);
           return;
@@ -1241,6 +1253,24 @@ const BillingForm = () => {
     else delete cellRefs.current[rowKey][col];
   }, []);
 
+  useEffect(() => {
+    const rowKey = pendingProductFocusRef.current;
+    if (!rowKey) return undefined;
+    const rowIdx = rows.findIndex(row => row._key === rowKey);
+    if (rowIdx < 0) {
+      pendingProductFocusRef.current = null;
+      return undefined;
+    }
+    setBillingPage(Math.floor(rowIdx / billingRowsPerPage) + 1);
+    requestAnimationFrame(() => {
+      const el = cellRefs.current[rowKey]?.[COL_PRODUCT];
+      if (!el || el.disabled || !el.getClientRects().length) return;
+      el.focus({ preventScroll: false });
+      pendingProductFocusRef.current = null;
+    });
+    return undefined;
+  }, [rows, billingPage, billingRowsPerPage]);
+
   /* ── Load master data ── */
   const loadCustomers = useCallback(async (search = '') => {
     const seq = ++customersReqRef.current;
@@ -1250,12 +1280,13 @@ const BillingForm = () => {
       const data = await billingService.getCustomersDropdown(search);
       if (seq !== customersReqRef.current) return;
       setCustomers(prev => {
-        const rows = Array.isArray(data) ? data : [];
+        const rows = Array.isArray(data) ? data.filter(Boolean) : [];
         if (!rows.length && prev.length && search) return prev;
         return rows;
       });
     } catch (err) {
       if (seq !== customersReqRef.current) return;
+      console.error('Customers API failed:', err);
       setCustomersError(err.response?.data?.detail || 'Unable to load customers. Retry.');
     } finally {
       if (seq === customersReqRef.current) setCustomersLoading(false);
@@ -1282,17 +1313,25 @@ const BillingForm = () => {
     }
     setProductsError('');
     try {
-      const data = await billingService.getProductsForBilling(term, options);
+      const data = await billingService.getProductsForBilling(term, { ...options, limit: 20 });
       if (seq !== productsReqRef.current) return;
       failedProductPageRef.current = null;
       setProducts(prev => {
-        const rows = Array.isArray(data) ? data : (data?.results ?? []);
+        const rows = Array.isArray(data)
+          ? data.filter(Boolean)
+          : Array.isArray(data?.results) ? data.results.filter(Boolean) : [];
         if (isMore) {
           const seen = new Set(prev.map(p => p.id));
           return [...prev, ...rows.filter(row => row?.id && !seen.has(row.id))];
         }
-        const selectedRows = prev.filter(p => rows.every(row => row.id !== p.id) && rows.some(Boolean));
-        return [...selectedRows, ...rows];
+        const selectedRows = rowsRef.current
+          .map(row => row?.productData)
+          .filter(product => product?.id);
+        const merged = new Map(rows.map(row => [row.id, row]));
+        selectedRows.forEach(product => {
+          if (!merged.has(product.id)) merged.set(product.id, product);
+        });
+        return [...merged.values()];
       });
       setProductsCursor(data?.next_cursor ?? null);
       setProductsHasMore(Boolean(data?.has_more));
@@ -1300,6 +1339,7 @@ const BillingForm = () => {
     } catch (err) {
       if (seq !== productsReqRef.current) return;
       if (err.code === 'ERR_CANCELED' || err.name === 'CanceledError') return;
+      console.error('Products API failed:', err);
       failedProductPageRef.current = { term, cursor: options.cursor || null };
       lastProductSearchRef.current = null;
       const status = err.response?.status;
@@ -1339,17 +1379,14 @@ const BillingForm = () => {
   useEffect(() => {
     const load = async () => {
       try {
-        const [pc] = await Promise.all([
-          billingService.getPriceCodes(),
-        ]);
-        if (!isEdit) await loadCustomers();
+        const [pc] = await Promise.all([billingService.getPriceCodes(), loadCustomers()]);
         setPriceCodes(Array.isArray(pc) ? pc : []);
       } catch (err) {
         setApiError(err.response?.data?.detail || 'Failed to load form data. Please retry.');
       }
     };
     load();
-  }, [isEdit, loadCustomers, loadProducts]);
+  }, [isEdit, loadCustomers]);
 
   /* Restore a sales draft after returning from quick customer/product creation */
   useEffect(() => {
@@ -1360,27 +1397,46 @@ const BillingForm = () => {
 
     restoredDraftRef.current = true;
     const createdProduct = location.state?.createdProduct;
+    const createdProductPrice = location.state?.createdProductPrice || createdProduct?.product_price || null;
+    if (createdProduct?.id) {
+      setProducts(prev => prev.some(product => product.id === createdProduct.id)
+        ? prev
+        : [...prev, createdProduct]);
+    }
     if (draft?.rows?.length) {
       const restoredRows = draft.rows.map(row => ({ ...row }));
       if (createdProduct?.id) {
+        const requestedKey = draft.productTargetRowKey;
+        const keyIndex = requestedKey
+          ? restoredRows.findIndex(row => row?._key === requestedKey)
+          : -1;
         const requestedIndex = Number.isInteger(draft.productTargetRow) ? draft.productTargetRow : -1;
-        const targetIndex = requestedIndex >= 0 && requestedIndex < restoredRows.length
-          ? requestedIndex
-          : Math.max(0, restoredRows.findIndex(isBlankRow));
-        const fixedPriceCodeID = draft.priceConfig?.PriceCodeType === 'Fixed'
-          ? draft.priceConfig?.FixedPriceCodeID || null
-          : restoredRows[targetIndex]?.PriceCodeID || null;
-        const fixedRate = fixedPriceCodeID ? getRateForCode(createdProduct, fixedPriceCodeID) : '';
+        const targetIndex = keyIndex >= 0
+          ? keyIndex
+          : requestedIndex >= 0 && requestedIndex < restoredRows.length
+            ? requestedIndex
+            : Math.max(0, restoredRows.findIndex(isBlankRow));
         restoredRows[targetIndex] = {
           ...restoredRows[targetIndex],
           ProductID: createdProduct.id,
           productData: createdProduct,
-          PriceCodeID: fixedPriceCodeID,
-          rate: fixedRate,
+          PriceCodeID: createdProductPrice?.price_code_id
+            ?? createdProductPrice?.PriceCodeID
+            ?? (draft.priceConfig?.PriceCodeType === 'Fixed' ? draft.priceConfig.FixedPriceCodeID : null),
+          rate: (() => {
+            const savedRate = Number(
+              createdProductPrice?.price
+                ?? createdProductPrice?.ProductPrice
+                ?? createdProductPrice?.rate
+            );
+            if (Number.isFinite(savedRate)) return String(savedRate);
+            return draft.priceConfig?.PriceCodeType === 'Fixed'
+              ? getRateForCode(createdProduct, draft.priceConfig.FixedPriceCodeID)
+              : '';
+          })(),
           changeableRate: '',
-          isRateEditable: !fixedRate,
+          isRateEditable: false,
           GSTPercent: createdProduct.GSTPercent > 0 ? String(createdProduct.GSTPercent) : '',
-          _onSpotProduct: true,
           _inactive: false,
         };
         setTimeout(() => focusCell(targetIndex, COL_QTY), 120);
@@ -1406,18 +1462,8 @@ const BillingForm = () => {
       setCustomerID(draft.customerID);
     }
 
-    if (location.state?.productCreated) {
-      if (createdProduct?.id) {
-        setProducts(prev => (
-          prev.some(product => product.id === createdProduct.id)
-            ? prev.map(product => product.id === createdProduct.id ? createdProduct : product)
-            : [createdProduct, ...prev]
-        ));
-      }
-      loadProducts('', { force: true });
-    }
     navigate(location.pathname, { replace: true });
-  }, [focusCell, loadProducts, location.pathname, location.state, navigate]);
+  }, [focusCell, location.pathname, location.state, navigate]);
 
   /* ── Load existing bill for edit mode ── */
   useEffect(() => {
@@ -1545,12 +1591,13 @@ const BillingForm = () => {
     requestAnimationFrame(() => focusCell(0, COL_PRODUCT));
   }, [customers, focusCell]);
 
-  const buildSalesDraft = useCallback((productTargetRow = null) => ({
+  const buildSalesDraft = useCallback((productTargetRow = null, productTargetRowKey = null) => ({
     customerID,
     priceConfig,
     rows,
     savedBillNo,
     productTargetRow,
+    productTargetRowKey,
   }), [customerID, priceConfig, rows, savedBillNo]);
 
   const goToAddCustomer = useCallback(() => {
@@ -1565,14 +1612,16 @@ const BillingForm = () => {
   const goToAddProduct = useCallback((event) => {
     event?.preventDefault();
     event?.stopPropagation();
-    const focusedRow = Number.parseInt(document.activeElement?.dataset?.rowIndex, 10);
+    const focusedRow = lastFocusedBillingRowRef.current ?? Number.parseInt(document.activeElement?.dataset?.rowIndex, 10);
     const productTargetRow = Number.isInteger(focusedRow)
       ? focusedRow
       : Math.max(0, rows.findIndex(isBlankRow));
+    const productTargetRowKey = rows[productTargetRow]?._key || null;
     navigate('/products/new', {
       state: {
+        source: 'sales-billing',
         returnToSales: true,
-        salesDraft: buildSalesDraft(productTargetRow),
+        salesDraft: buildSalesDraft(productTargetRow, productTargetRowKey),
         returnPath: location.pathname,
       },
     });
@@ -1658,24 +1707,30 @@ const BillingForm = () => {
     const pcID = prod ? (fixedPcID || rows[idx].PriceCodeID || null) : null;
     const rate = prod && pcID ? getRateForCode(prod, pcID) : '';
     const gstPct = prod?.GSTPercent > 0 ? String(prod.GSTPercent) : '';
-    updateRow(idx, { ProductID: prod?.id || null, productData: prod, PriceCodeID: pcID, rate, changeableRate: '', isRateEditable: false, GSTPercent: gstPct });
+    const productPatch = { ProductID: prod?.id || null, productData: prod, PriceCodeID: pcID, rate,
+      changeableRate: '', isRateEditable: false, GSTPercent: gstPct };
+    updateRow(idx, productPatch);
+    completeCalculatedRow(idx, productPatch);
     setTimeout(() => focusCell(idx, prod ? COL_QTY : COL_PRODUCT), 60);
-  }, [products, isFixed, priceConfig, rows, updateRow, focusCell]);
+  }, [products, isFixed, priceConfig, rows, updateRow, focusCell, completeCalculatedRow]);
 
   const handlePriceCodeChange = useCallback((idx, pcid) => {
     const row = rows[idx];
     if (!pcid) {
-      updateRow(idx, {
+      const priceCodePatch = {
         PriceCodeID: null,
         rate: '',
         changeableRate: '',
         isRateEditable: true,
-      });
+      };
+      updateRow(idx, priceCodePatch);
       return;
     }
     const rate = getRateForCode(row.productData, pcid);
-    updateRow(idx, { PriceCodeID: pcid, rate, changeableRate: '', isRateEditable: false });
-  }, [rows, updateRow]);
+    const priceCodePatch = { PriceCodeID: pcid, rate, changeableRate: '', isRateEditable: false };
+    updateRow(idx, priceCodePatch);
+    completeCalculatedRow(idx, priceCodePatch);
+  }, [rows, updateRow, completeCalculatedRow]);
 
   const toggleRateEdit = useCallback((idx) => {
     setRows(prev => prev.map((r, i) => {
@@ -1887,30 +1942,20 @@ const BillingForm = () => {
 
     for (let rowIdx = 0; rowIdx < rows.length; rowIdx += 1) {
       const rowRef = cellRefs.current[rows[rowIdx]?._key] || {};
-      const col = activeCols().find(colKey => {
+      const col = activeCols(rows[rowIdx]).find(colKey => {
         const el = rowRef[colKey];
         return el && (el === target || el.contains?.(target));
       });
       if (col) {
         if (e.key === 'Backspace') {
+          const row = rows[rowIdx];
+          const hasFieldValue = typeof target.value === 'string' && target.value.length > 0;
+          const hasSelectedLookupValue = (col === COL_PRODUCT && row?.ProductID)
+            || (col === COL_PRICE_CODE && row?.PriceCodeID);
+          if (hasFieldValue || hasSelectedLookupValue) return;
           e.preventDefault();
           e.stopPropagation();
-          if (col === COL_PRODUCT) {
-            updateRow(rowIdx, {
-              ProductID: null, productData: null, PriceCodeID: null,
-              rate: '', changeableRate: '', isRateEditable: false,
-              GSTPercent: '',
-            });
-          } else if (col === COL_QTY) {
-            updateRow(rowIdx, { Qty: '' });
-          } else if (col === COL_PRICE_CODE) {
-            updateRow(rowIdx, {
-              PriceCodeID: null, rate: '', changeableRate: '', isRateEditable: true,
-            });
-          } else if (col === COL_RATE) {
-            updateRow(rowIdx, { changeableRate: '', isRateEditable: true });
-          }
-          setTimeout(() => navigateCell(rowIdx, col, -1), 0);
+          navigateCell(rowIdx, col, -1);
           return;
         }
         e.preventDefault();
@@ -2016,7 +2061,7 @@ const BillingForm = () => {
                 onNavigateToAdd={goToAddCustomer}
                 disabled={saving || isReadOnly}
                 inputRef={custRef}
-                onNext={() => focusCell(0, activeCols()[0])}
+                onNext={() => focusCell(0, activeCols(rows[0])[0])}
                 onPrev={focusLastGridField}
                 onSearch={loadCustomers}
                 loading={customersLoading}
@@ -2114,6 +2159,9 @@ const BillingForm = () => {
               <tbody>
                 {visibleBillingRows.map(({ row, idx }, visibleIdx) => {
                   const effectiveRate = getEffectiveRate(row);
+                  const displayedRate = row.isRateEditable
+                    ? row.changeableRate
+                    : effectiveRate > 0 ? effectiveRate.toFixed(2) : '0.00';
                   const qty           = parseFloat(row.Qty) || 0;
                   const lineAmt       = qty * effectiveRate;
                   const hasChangeable = row.changeableRate && parseFloat(row.changeableRate) > 0;
@@ -2126,6 +2174,7 @@ const BillingForm = () => {
                     <tr key={row._key} ref={visibleIdx === 0 ? billingRowRef : undefined} className={`bf-row${rowErr ? ' bf-row-error' : ''}${row._inactive ? ' bf-row-inactive' : ''}`}
                       tabIndex={row._inactive ? 0 : undefined}
                       aria-label={row._inactive ? 'Empty billing row. Press Enter or click to add an item.' : undefined}
+                      onFocusCapture={() => { lastFocusedBillingRowRef.current = idx; }}
                       onClick={() => { if (row._inactive) activateBlankRow(idx); }}
                       onFocus={e => { if (row._inactive && e.target === e.currentTarget) activateBlankRow(idx); }}
                       onKeyDown={e => {
@@ -2147,6 +2196,7 @@ const BillingForm = () => {
                       <td className="bf-td" style={{overflow:'visible',position:'relative'}}>
                         <ProductSearchDropdown
                           products={products}
+                          selectedProduct={row.productData}
                           value={row.ProductID}
                           onChange={pid => handleProductChange(idx, pid)}
                           disabled={saving || isReadOnly || row._inactive}
@@ -2193,7 +2243,11 @@ const BillingForm = () => {
                           disabled={saving || isReadOnly || !row.ProductID}
                           placeholder="0"
                           ref={el => setCellRef(row._key, COL_QTY, el)}
-                          onChange={e => updateRow(idx, { Qty: e.target.value })}
+                          onChange={e => {
+                            const quantityPatch = { Qty: e.target.value };
+                            updateRow(idx, quantityPatch);
+                            completeCalculatedRow(idx, quantityPatch);
+                          }}
                           onBlur={e => {
                             if (e.currentTarget.dataset.skipDuplicateMerge === 'true') {
                               delete e.currentTarget.dataset.skipDuplicateMerge;
@@ -2219,7 +2273,7 @@ const BillingForm = () => {
                         />
                       </td>
 
-                      {/* Price Code — editable dropdown for Random, locked badge for Fixed */}
+                      {/* Price Code */}
                       <td className="bf-td" style={{overflow:'visible',position:'relative'}}>
                         {isFixed ? (
                           /* Fixed: show a compact locked badge */
@@ -2266,7 +2320,7 @@ const BillingForm = () => {
                           className="bf-input"
                           type="number" min="0" step="0.01"
                           tabIndex={-1}
-                          value={row.isRateEditable ? row.changeableRate : (row.changeableRate || row.rate)}
+                          value={displayedRate}
                           disabled={saving || isReadOnly || !row.ProductID}
                           placeholder="0.00"
                           ref={el => setCellRef(row._key, COL_RATE, el)}
@@ -2275,7 +2329,9 @@ const BillingForm = () => {
                           data-row-index={idx}
                           aria-invalid={Boolean(rateErr)}
                           onChange={e => {
-                            updateRow(idx, { changeableRate: e.target.value, isRateEditable: true });
+                            const ratePatch = { changeableRate: e.target.value, isRateEditable: true };
+                            updateRow(idx, ratePatch);
+                            completeCalculatedRow(idx, ratePatch);
                             if (rateErr) {
                               setRateErrors(prev => {
                                 const next = { ...prev };
@@ -2437,7 +2493,9 @@ const BillingForm = () => {
           <button type="button"
             tabIndex={-1}
             ref={cancelBtnRef}
-            onClick={() => navigate('/billing')}
+            onClick={() => {
+              navigate('/billing');
+            }}
             disabled={saving}
             style={{padding:'.5rem 1.25rem',borderRadius:8,
               border:'1.5px solid var(--border-input)',background:'transparent',

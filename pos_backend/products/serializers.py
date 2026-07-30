@@ -314,6 +314,8 @@ class ProductPricePageSerializer(serializers.ModelSerializer):
 # ─── Unit ─────────────────────────────────────────────────────────────────────
 
 class UnitSerializer(serializers.ModelSerializer):
+    Decimal = serializers.CharField(required=True, allow_blank=False, max_length=50)
+
     class Meta:
         model  = Unit
         fields = ['id', 'UnitName', 'UQC', 'Decimal', 'CreatedOn']
@@ -339,6 +341,12 @@ class UnitSerializer(serializers.ModelSerializer):
             qs = qs.exclude(pk=self.instance.pk)
         if qs.exists():
             raise serializers.ValidationError("This UQC code already exists.")
+        return v
+
+    def validate_Decimal(self, value):
+        v = (value or '').strip()
+        if not v:
+            raise serializers.ValidationError("Decimal is required.")
         return v
 
     def create(self, validated_data):

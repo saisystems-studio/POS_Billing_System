@@ -2,6 +2,7 @@ from django.urls import path
 from .views import (
     ProductGroupListCreateView, ProductGroupDetailView, ProductGroupDropdownView,
     ProductListCreateView, ProductDetailView, ProductWithPricesCreateView,
+    ProductWithFixedPriceCreateView,
     ProductNextCodeView,
     ProductPriceListCreateView, ProductPriceDetailView,
     PriceCodeListView, ProductsForBillingView,
@@ -29,6 +30,7 @@ urlpatterns = [
     path('products/import/',             ProductImportView.as_view(),           name='product_import'),
     path('products/import-template/',    ProductImportTemplateView.as_view(),   name='product_import_template'),
     path('products/create-with-prices/',          ProductWithPricesCreateView.as_view(), name='product_create'),
+    path('products/create-with-fixed-price/',     ProductWithFixedPriceCreateView.as_view(), name='product_create_fixed_price'),
     path('products/create-with-prices/<int:pk>/', ProductWithPricesCreateView.as_view(), name='product_update'),
     path('products/',                    ProductListCreateView.as_view(),       name='product_list'),
     path('products/<int:pk>/',           ProductDetailView.as_view(),           name='product_detail'),
