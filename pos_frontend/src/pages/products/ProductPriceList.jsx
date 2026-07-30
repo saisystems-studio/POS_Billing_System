@@ -63,6 +63,8 @@ const ProductPriceList = () => {
   const importAbortRef = useRef(null);
   const dirtyRef = useRef({});
   const navigationLockRef = useRef(false);
+  const savingAllRef = useRef(false);
+  const saveAllRef = useRef(null);
   const pageCacheRef = useRef(new Map());
   const pageRequestsRef = useRef(new Map());
   const { pageSize, containerRef, rowRef, bottomRef } = useResponsivePageSize({
@@ -94,7 +96,7 @@ const ProductPriceList = () => {
     const t = setTimeout(() => {
       setDebSearch(search.trim());
       setPage(1);
-    }, 400);
+    }, 300);
     return () => clearTimeout(t);
   }, [search]);
 
@@ -220,7 +222,7 @@ const ProductPriceList = () => {
     } finally {
       if (seq === fetchSeqRef.current) setLoading(false);
     }
-  }, [applyPageData, debSearch, groupFilter, page, pageSize, persistPageCache, products.length, user, username]);
+  }, [applyPageData, debSearch, groupFilter, page, pageSize, persistPageCache, user, username]);
 
   useEffect(() => {
     const clearPriceCodeCache = () => {
@@ -283,8 +285,10 @@ const ProductPriceList = () => {
   };
 
   const saveAll = async () => {
+    if (savingAllRef.current || savingAll) return;
     const dirtyIds = Object.entries(dirty).filter(([,v]) => v).map(([k]) => parseInt(k));
     if (!dirtyIds.length) { toast.error('Nothing to save', 'No unsaved changes.'); return; }
+    savingAllRef.current = true;
     setSavingAll(true);
     let failed = 0;
     for (const pid of dirtyIds) {
@@ -301,10 +305,24 @@ const ProductPriceList = () => {
         setDirty(prev => ({ ...prev, [pid]: false }));
       } catch { failed++; }
     }
+    savingAllRef.current = false;
     setSavingAll(false);
     if (!failed) toast.success('Saved All', 'All rates updated.');
     else toast.error('Partial Save', `${failed} row(s) failed.`);
   };
+
+  saveAllRef.current = saveAll;
+  useEffect(() => {
+    const handleKeyDown = event => {
+      if (!event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || event.key.toLowerCase() !== 's') return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.repeat) return;
+      saveAllRef.current?.();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   const csvEscape = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
   const handleExportCsv = () => {

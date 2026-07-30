@@ -39,6 +39,13 @@ const spinEl = (
 );
 
 const decimalPattern = /^\d+(\.\d{0,2})?$/;
+const normalizeNumericInput = rawValue => {
+  let value = String(rawValue ?? '').replace(/[^\d.]/g, '');
+  const parts = value.split('.');
+  if (parts.length > 2) value = `${parts[0]}.${parts.slice(1).join('')}`;
+  if (value.length > 1 && value.startsWith('0') && !value.startsWith('0.')) value = value.replace(/^0+/, '');
+  return value;
+};
 const PRODUCT_OPTION_HEIGHT = 34;
 const PRODUCT_MENU_HEIGHT = 220;
 
@@ -633,7 +640,7 @@ const BarcodeGenerator = () => {
                     value={sellingPrice}
                     disabled={saving}
                     onChange={e => {
-                      const val = e.target.value;
+                      const val = normalizeNumericInput(e.target.value);
                       if (!val || decimalPattern.test(val)) setSellingPrice(val);
                       clearError('SellingPrice');
                     }}
@@ -662,7 +669,7 @@ const BarcodeGenerator = () => {
                     value={mrp}
                     disabled={saving}
                     onChange={e => {
-                      const val = e.target.value;
+                      const val = normalizeNumericInput(e.target.value);
                       if (!val || decimalPattern.test(val)) setMrp(val);
                       clearError('MRP');
                     }}

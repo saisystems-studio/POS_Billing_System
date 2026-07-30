@@ -50,10 +50,10 @@ const Toggle = ({ value, onChange, disabled }) => (
     <span style={{fontSize:'.76rem',fontWeight:700,color:value?BRAND:'var(--text-muted)'}}>{value?'Active':'Inactive'}</span>
   </div>
 );
-const CBx = ({ checked, onChange, disabled, label, navOrder }) => (
+const CBx = ({ checked, onChange, disabled, label, navOrder, name }) => (
   <label className="form-check customer-checkbox-row" style={{display:'flex',alignItems:'center',gap:'.3rem',cursor:disabled?'default':'pointer',
     fontSize:'.74rem',fontWeight:500,color:'var(--text-label)',userSelect:'none'}}>
-    <input type="checkbox" data-nav-order={navOrder} className="form-check-input" checked={checked} onChange={onChange} disabled={disabled}
+    <input type="checkbox" name={name} data-nav-order={navOrder} className="form-check-input" checked={checked} onChange={onChange} disabled={disabled}
       style={{width:13,height:13,accentColor:BRAND,cursor:disabled?'not-allowed':'pointer'}}/>
     <span className="form-check-label">{label}</span>
   </label>
@@ -77,11 +77,13 @@ const F = ({ label, required, opt, error, children, style }) => (
   </div>
 );
 
-const SearchableDropdown = ({ value, onChange, options, placeholder, disabled, error, navOrder }) => {
+const SearchableDropdown = ({ value, onChange, options, placeholder, disabled, error, navOrder, name }) => {
   const [query, setQuery] = useState(value || '');
   const [open,  setOpen]  = useState(false);
+  const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const ref = useRef(null);
   const inputRef = useRef(null);
+  const listRef = useRef(null);
   const { menuClassName, mobileMenuStyle } = useMobileDropdownPlacement(ref, open);
   useEffect(() => {
     if (document.activeElement === inputRef.current) return;
@@ -121,30 +123,51 @@ const SearchableDropdown = ({ value, onChange, options, placeholder, disabled, e
     if(!aL.startsWith(q)&&bL.startsWith(q))return 1;
     return a.localeCompare(b);
   });
+  useEffect(() => {
+    if (open && highlightedIndex >= 0) listRef.current?.children[highlightedIndex]?.scrollIntoView?.({ block: 'nearest' });
+  }, [open, highlightedIndex, sorted.length]);
   return (
     <div ref={ref} className="app-dropdown" style={{position:'relative'}}>
-      <input ref={inputRef} data-nav-order={navOrder} type="text" className={`form-control${error?' is-invalid':''}`}
+      <input ref={inputRef} name={name} data-nav-order={navOrder} type="text" className={`form-control${error?' is-invalid':''}`}
         placeholder={placeholder} value={query} disabled={disabled} autoComplete="off"
         style={{...CI,paddingRight:'2rem',borderColor:error?'var(--danger)':undefined}}
-        onChange={e=>{setQuery(e.target.value);setOpen(true);if(!e.target.value.trim())onChange('');}}
-        onFocus={()=>setOpen(true)}
+        onChange={e=>{setQuery(e.target.value);setOpen(true);setHighlightedIndex(-1);if(!e.target.value.trim())onChange('');}}
+        onFocus={()=>{setOpen(true);setHighlightedIndex(-1);}}
+        onKeyDown={e=>{
+          if (e.key === 'Escape' && open) {
+            e.preventDefault(); e.stopPropagation(); setOpen(false); setHighlightedIndex(-1); return;
+          }
+          if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+            e.preventDefault(); e.stopPropagation();
+            if (!open) { setOpen(true); setHighlightedIndex(sorted.length ? (e.key === 'ArrowDown' ? 0 : sorted.length - 1) : -1); return; }
+            setHighlightedIndex(i => sorted.length ? (e.key === 'ArrowDown' ? Math.min(i < 0 ? 0 : i + 1, sorted.length - 1) : Math.max(i < 0 ? sorted.length - 1 : i - 1, 0)) : -1);
+            return;
+          }
+          if (e.key === 'Enter' && open) {
+            const selected = sorted[highlightedIndex] || sorted.find(o => o.toLowerCase() === query.toLowerCase().trim());
+            e.preventDefault(); e.stopPropagation();
+            if (selected) { setQuery(selected); onChange(selected); setOpen(false); setHighlightedIndex(-1); }
+            else { setOpen(false); setHighlightedIndex(-1); }
+          }
+        }}
         onBlur={()=>setTimeout(()=>{
           setOpen(false);
+          setHighlightedIndex(-1);
           const ex=options.find(o=>o.toLowerCase()===query.toLowerCase().trim());
           if(ex){setQuery(ex);onChange(ex);}else if(!options.includes(query)){setQuery(value||'');}
         },160)}/>
       <span style={{position:'absolute',right:'.55rem',top:'50%',transform:'translateY(-50%)',
         pointerEvents:'none',color:'var(--text-muted)',fontSize:'.6rem'}}>▾</span>
-      {open&&sorted.length>0&&(
-        <ul className={menuClassName} style={{...mobileMenuStyle,position:'absolute',top:'100%',left:0,right:0,zIndex:9999,
+          {open&&sorted.length>0&&(
+        <ul ref={listRef} className={menuClassName} style={{...mobileMenuStyle,position:'absolute',top:'100%',left:0,right:0,zIndex:9999,
           background:'var(--card-bg)',border:'1.5px solid var(--primary)',
           borderTop:'none',borderRadius:'0 0 var(--radius) var(--radius)',
           boxShadow:'0 6px 20px rgba(0,0,0,.12)',maxHeight:200,overflowY:'auto',margin:0,padding:0,listStyle:'none'}}>
-          {sorted.map(opt=>(
-            <li key={opt} onMouseDown={()=>{setQuery(opt);setOpen(false);onChange(opt);}}
+            {sorted.map((opt, i)=>(
+              <li key={opt} onMouseDown={()=>{setQuery(opt);setOpen(false);setHighlightedIndex(-1);onChange(opt);}}
               style={{padding:'.42rem .75rem',fontSize:'.81rem',cursor:'pointer',
                 color:value===opt?'var(--primary-dark)':'var(--text-primary)',
-                background:value===opt?'var(--primary-light)':'transparent',fontWeight:value===opt?700:400}}
+                background:highlightedIndex===i?'var(--primary-light)':value===opt?'var(--primary-light)':'transparent',fontWeight:value===opt?700:400}}
               onMouseEnter={e=>{if(value!==opt)e.currentTarget.style.background='var(--scale-50)';}}
               onMouseLeave={e=>{if(value!==opt)e.currentTarget.style.background='transparent';}}>{opt}</li>
           ))}
@@ -159,6 +182,9 @@ const PriceRefPanel = ({ priceCodes, onClose }) => {
   const [products, setProducts]   = useState([]);
   const [loading,  setLoading]    = useState(true);
   const [search,   setSearch]     = useState('');
+  const closeRef = useRef(null);
+
+  useEffect(() => { requestAnimationFrame(() => closeRef.current?.focus()); }, []);
 
   useEffect(() => {
     api.get('/products/for-price-page/').then(r => {
@@ -178,7 +204,9 @@ const PriceRefPanel = ({ priceCodes, onClose }) => {
             <span style={{fontWeight:800,fontSize:'.95rem',fontFamily:'var(--font-heading)',color:'var(--text-primary)'}}>Price Code Reference</span>
             <p style={{fontSize:'.72rem',color:'var(--text-muted)',marginTop:'.1rem'}}>All products with their 5 price tiers</p>
           </div>
-          <button onClick={onClose} style={{background:'var(--scale-100)',border:'none',borderRadius:6,width:30,height:30,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'var(--text-muted)',fontSize:'.85rem'}}>✕</button>
+          <button ref={closeRef} onClick={onClose} onKeyDown={e=>{
+            if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); onClose(); }
+          }} style={{background:'var(--scale-100)',border:'none',borderRadius:6,width:30,height:30,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'var(--text-muted)',fontSize:'.85rem'}}>✕</button>
         </div>
         <div style={{padding:'.625rem 1rem',borderBottom:'1px solid var(--divider)',flexShrink:0}}>
           <input type="text" placeholder="Search product…" value={search} onChange={e=>setSearch(e.target.value)}
@@ -244,6 +272,10 @@ const CustomerForm = () => {
   const [createdInfo,  setCreatedInfo]  = useState(null);
   const [priceCodes,   setPriceCodes]   = useState([]);
   const [showPriceRef, setShowPriceRef] = useState(false);
+  const customerFormRef = useRef(null);
+  const priceViewRef = useRef(null);
+  const selectedFixedPriceRef = useRef(null);
+  const checkboxEnterRef = useRef({ element: null, time: 0, timer: null });
   const returnToSales = Boolean(location.state?.returnToSales);
   const salesDraft = location.state?.salesDraft || null;
 
@@ -315,9 +347,10 @@ const CustomerForm = () => {
     if (name === 'GSTNo') {
       val = value.replace(/\s/g, '').toUpperCase().slice(0, 15);
     }
+    if (name === 'FixedPriceCodeID') selectedFixedPriceRef.current = e.target;
     setForm(p => {
       const n = { ...p, [name]: val };
-      if (name==='whatsapp_same') { n.WhatsappNumber = checked ? p.PhoneNumber : ''; }
+      if (name==='whatsapp_same') { n.WhatsappNumber = checked ? p.PhoneNumber : p.WhatsappNumber; }
       if (name==='PhoneNumber' && p.whatsapp_same) n.WhatsappNumber = val;
       if (name==='IsGSTCustomer' && !checked) n.GSTNo = '';
       if (name==='PriceCodeType' && val==='Random') { n.FixedPriceCodeID = ''; }
@@ -342,6 +375,184 @@ const CustomerForm = () => {
     setForm(p => ({ ...p, State:v, Country:v?'India':p.Country }));
     if (errors.State) setErrors(p => ({ ...p, State: '' }));
   }, [errors]);
+
+  // Add Customer has a conditional, form-local Enter flow. The shared
+  // shortcut component opts out for this form only (see its scoped guard).
+  useEffect(() => {
+    const formEl = customerFormRef.current;
+    if (!formEl) return undefined;
+    const visible = el => el && !el.disabled && el.getClientRects().length > 0
+      && window.getComputedStyle(el).display !== 'none' && window.getComputedStyle(el).visibility !== 'hidden';
+    const focus = el => { if (visible(el)) { el.focus({ preventScroll: false }); el.select?.(); } };
+    const fields = () => {
+      const names = ['CustomerName','EmailId','PhoneNumber','whatsapp_same','WhatsappNumber','Address',
+        'District','State','Country','PinCode','IsGSTCustomer','GSTNo'];
+      const result = names
+        .filter(n => !(n === 'WhatsappNumber' && form.whatsapp_same))
+        .map(n => formEl.querySelector(`[name="${n}"]`))
+        .filter(visible);
+      if (form.PriceCodeType === 'Random') {
+        result.push(formEl.querySelector('input[name="PriceCodeType"][value="Random"]'));
+      } else {
+        result.push(formEl.querySelector('input[name="PriceCodeType"][value="Fixed"]'));
+        result.push(...[...formEl.querySelectorAll('input[name="FixedPriceCodeID"]')].filter(visible));
+        result.push(priceViewRef.current);
+      }
+      return result.filter(Boolean);
+    };
+    const invalid = target => {
+      let message = '';
+      if (target.name === 'PhoneNumber' && target.value && !PHONE_10.test(target.value))
+        message = 'Enter a valid 10-digit mobile number.';
+      if (target.name === 'WhatsappNumber' && target.value && !PHONE_10.test(target.value))
+        message = 'Enter a valid 10-digit WhatsApp number.';
+      if (target.name === 'GSTNo') {
+        const gst = target.value.replace(/\s/g, '').toUpperCase();
+        if (!gst) message = 'GST Number is required.';
+        else if (gst.length !== 15) message = 'GST Number must be exactly 15 characters.';
+        else if (!GST_RE.test(gst)) message = 'Invalid GSTIN format (e.g. 33ABCDE1234F1Z5).';
+      }
+      if (target.name === 'PinCode' && target.value && !/^\d{6}$/.test(target.value))
+        message = 'PIN must be 6 digits.';
+      if (message) { setErrors(p => ({ ...p, [target.name]: message })); return true; }
+      return false;
+    };
+    const next = target => {
+      const list = fields();
+      const index = list.indexOf(target);
+      if (index >= 0) focus(list[index + 1]);
+    };
+    const previous = target => {
+      const list = fields();
+      const index = list.indexOf(target);
+      if (index > 0) focus(list[index - 1]);
+    };
+    const handler = event => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement) || !formEl.contains(target)) return;
+      if (target.closest('.app-dropdown') && ['Enter', 'ArrowDown', 'ArrowUp'].includes(event.key)
+        && target.closest('.app-dropdown').querySelector('ul')) return;
+      if (event.key === 'Enter' && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey) {
+        event.preventDefault(); event.stopPropagation();
+        if (target.type === 'checkbox') {
+          if (event.repeat) return;
+          if (target.name !== 'whatsapp_same') {
+            target.click();
+            if (target.name === 'IsGSTCustomer' && !target.checked) {
+              requestAnimationFrame(() => focus(formEl.querySelector('input[name="PriceCodeType"]')));
+            }
+            return;
+          }
+          const now = Date.now();
+          const prior = checkboxEnterRef.current;
+          if (prior.timer) clearTimeout(prior.timer);
+          if (prior.element === target && now - prior.time <= 350) {
+            checkboxEnterRef.current = { element: null, time: 0, timer: null };
+            target.click();
+            return;
+          }
+          const timer = setTimeout(() => {
+            checkboxEnterRef.current = { element: null, time: 0, timer: null };
+            next(target);
+          }, 350);
+          checkboxEnterRef.current = { element: target, time: now, timer };
+          return;
+        }
+        if (target.name === 'PriceCodeType') {
+          if (!target.checked) {
+            target.click();
+          } else {
+            if (target.value === 'Random') {
+              focus(formEl.querySelector('input[name="PriceCodeType"][value="Fixed"]'));
+            } else {
+              focus(formEl.querySelector('input[name="FixedPriceCodeID"]'));
+            }
+          }
+          return;
+        }
+        if (target.name === 'FixedPriceCodeID') {
+          if (!target.checked) {
+            selectedFixedPriceRef.current = target;
+            target.click();
+          } else {
+            next(target);
+          }
+          return;
+        }
+        if (target.dataset.keyboardField === 'true') {
+          target.click();
+          return;
+        }
+        if (invalid(target)) return;
+        next(target);
+        return;
+      }
+      if ((event.key === 'ArrowRight' || event.key === 'ArrowDown'
+        || event.key === 'ArrowLeft' || event.key === 'ArrowUp')
+        && target.name === 'PriceCodeType') {
+        event.preventDefault(); event.stopPropagation();
+        const option = event.key === 'ArrowRight' || event.key === 'ArrowDown' ? 'Fixed' : 'Random';
+        const radio = formEl.querySelector(`input[name="PriceCodeType"][value="${option}"]`);
+        if (radio && !radio.disabled) focus(radio);
+        return;
+      }
+      if ((event.key === 'ArrowRight' || event.key === 'ArrowDown'
+        || event.key === 'ArrowLeft' || event.key === 'ArrowUp')
+        && target.name === 'FixedPriceCodeID') {
+        event.preventDefault(); event.stopPropagation();
+        const options = [...formEl.querySelectorAll('input[name="FixedPriceCodeID"]')].filter(visible);
+        const index = options.indexOf(target);
+        if (index >= 0 && options.length) {
+          const direction = event.key === 'ArrowRight' || event.key === 'ArrowDown' ? 1 : -1;
+          const nextIndex = Math.max(0, Math.min(index + direction, options.length - 1));
+          focus(options[nextIndex]);
+        }
+      }
+      if (event.key === 'Escape' && target instanceof HTMLInputElement
+        && !target.disabled && !target.readOnly) {
+        event.preventDefault(); event.stopPropagation();
+        if (target.type === 'checkbox' || target.type === 'radio') {
+          const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'checked')?.set;
+          setter?.call(target, false);
+          target.dispatchEvent(new Event('input', { bubbles: true }));
+          target.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        else if (target.value) {
+          const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+          setter?.call(target, '');
+          target.dispatchEvent(new Event('input', { bubbles: true }));
+          target.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        requestAnimationFrame(() => target.focus());
+        return;
+      }
+      if (event.key === 'Backspace' && target instanceof HTMLInputElement
+        && !target.disabled && !target.readOnly && !/checkbox|radio/.test(target.type)) {
+        event.preventDefault(); event.stopPropagation();
+        if (!target.value) { previous(target); return; }
+        const start = typeof target.selectionStart === 'number' ? target.selectionStart : target.value.length;
+        const end = typeof target.selectionEnd === 'number' ? target.selectionEnd : start;
+        const from = start === end ? Math.max(0, start - 1) : start;
+        const value = `${target.value.slice(0, from)}${target.value.slice(end)}`;
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+        setter?.call(target, value);
+        target.dispatchEvent(new Event('input', { bubbles: true }));
+        target.dispatchEvent(new Event('change', { bubbles: true }));
+        requestAnimationFrame(() => target.setSelectionRange?.(from, from));
+        return;
+      }
+      if (event.key === 'Backspace' && target instanceof HTMLInputElement
+        && target.type === 'checkbox' && !target.disabled) {
+        event.preventDefault(); event.stopPropagation();
+        previous(target);
+      }
+    };
+    window.addEventListener('keydown', handler, true);
+    return () => {
+      window.removeEventListener('keydown', handler, true);
+      if (checkboxEnterRef.current.timer) clearTimeout(checkboxEnterRef.current.timer);
+    };
+  }, [form.PriceCodeType, form.whatsapp_same]);
 
   const validate = () => {
     const e = {};
@@ -374,7 +585,14 @@ const CustomerForm = () => {
     e.stopPropagation();
     if (saveInFlightRef.current || saving) return;
     const errs = validate();
-    if (Object.keys(errs).length) { setErrors(errs); return; }
+    if (Object.keys(errs).length) {
+      setErrors(errs);
+      if (form.PriceCodeType === 'Fixed' && !form.FixedPriceCodeID) {
+        requestAnimationFrame(() => customerFormRef.current
+          ?.querySelector('input[name="FixedPriceCodeID"]')?.focus());
+      }
+      return;
+    }
     saveInFlightRef.current = true;
     setSaving(true); setApiError('');
     const addrParts = [form.Address.trim(), form.District.trim(), form.State.trim(), form.Country.trim(), form.PinCode.trim()];
@@ -425,7 +643,18 @@ const CustomerForm = () => {
 
   return (
     <Layout>
-      {showPriceRef && <PriceRefPanel priceCodes={priceCodes} onClose={()=>setShowPriceRef(false)}/>}
+      {showPriceRef && <PriceRefPanel priceCodes={priceCodes} onClose={()=>{
+        setShowPriceRef(false);
+        requestAnimationFrame(() => {
+          const selected = selectedFixedPriceRef.current;
+          const formEl = customerFormRef.current;
+          const fallback = formEl?.querySelector?.('input[name="FixedPriceCodeID"]:checked')
+            || formEl?.querySelector?.('input[name="FixedPriceCodeID"]');
+          if (selected && selected.getClientRects().length && !selected.disabled) selected.focus();
+          else if (fallback && fallback.getClientRects().length && !fallback.disabled) fallback.focus();
+          else priceViewRef.current?.focus();
+        });
+      }}/>}
       <div className="page-header customer-page-header professional-form-title-card animate-in">
         <div>
           <h2 style={{fontFamily:'var(--font-heading)',fontWeight:800}}>
@@ -441,7 +670,7 @@ const CustomerForm = () => {
         </div>
       </div>
       {apiError && <div className="alert alert-warning animate-in"><span>⚠️</span><span>{apiError}</span></div>}
-      <form className="customer-form-page" onSubmit={e => { e.preventDefault(); e.stopPropagation(); }} noValidate>
+      <form ref={customerFormRef} data-customer-form="true" className="customer-form-page" onSubmit={e => { e.preventDefault(); e.stopPropagation(); }} noValidate>
         <div className="card animate-in animate-in-1 professional-customer-form-card" style={{width:'100%',maxWidth:1120,margin:'0 auto 1.25rem'}}>
           <div className="card-body" style={{padding:'1.125rem 1.5rem'}}>
             {/* Header */}
@@ -495,11 +724,12 @@ const CustomerForm = () => {
                   fontWeight:700,fontSize:'.72rem',color:'var(--text-label)',marginBottom:'.2rem'}}>
                   <span>WhatsApp <span style={{color:'var(--text-muted)',fontWeight:400,fontSize:'.70rem'}}>(optional)</span></span>
                 </label>
-                {!isReadOnly && <CBx checked={form.whatsapp_same} navOrder="4" onChange={e=>change({target:{name:'whatsapp_same',type:'checkbox',checked:e.target.checked}})} disabled={isReadOnly} label="Same as Phone"/>}
+                {!isReadOnly && <CBx name="whatsapp_same" checked={form.whatsapp_same} navOrder="4" onChange={e=>change({target:{name:'whatsapp_same',type:'checkbox',checked:e.target.checked}})} disabled={isReadOnly} label="Same as Phone"/>}
                 <input name="WhatsappNumber" data-nav-order="5" type="tel" inputMode="numeric" maxLength={10}
                   className={`form-control${errors.WhatsappNumber?' is-invalid':''}`}
                   placeholder="10-digit mobile"
-                  value={form.WhatsappNumber} onChange={change} disabled={isReadOnly||form.whatsapp_same}
+                  value={form.WhatsappNumber} onChange={change} readOnly={form.whatsapp_same}
+                  disabled={isReadOnly}
                   onKeyDown={e => { if (!/^[0-9]$/.test(e.key) && !['Backspace','Delete','ArrowLeft','ArrowRight','Tab','Enter'].includes(e.key)) e.preventDefault(); }}
                   style={{...inp('WhatsappNumber')}}/>
                 <FErr msg={errors.WhatsappNumber}/>
@@ -519,16 +749,16 @@ const CustomerForm = () => {
             <div className="customer-form-grid" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'.75rem',marginBottom:'.65rem',marginTop:'.65rem'}}>
               <F label="District" opt error={errors.District}>
                   <SearchableDropdown value={form.District} onChange={handleDistrictChange}
-                  options={ALL_DISTRICT_NAMES} placeholder="Search district…" disabled={isReadOnly} error={errors.District} navOrder="7"/>
+                  options={ALL_DISTRICT_NAMES} placeholder="Search district…" disabled={isReadOnly} error={errors.District} navOrder="7" name="District"/>
               </F>
               <F label="State" opt error={errors.State}>
                 <SearchableDropdown value={form.State} onChange={handleStateChange}
-                  options={INDIA_STATES} placeholder="Search state…" disabled={isReadOnly} error={errors.State} navOrder="8"/>
+                  options={INDIA_STATES} placeholder="Search state…" disabled={isReadOnly} error={errors.State} navOrder="8" name="State"/>
               </F>
             </div>
             <div className="customer-form-grid" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'.75rem',marginBottom:'.65rem'}}>
               <F label="Country" opt>
-                <input name="Country" type="text" className="form-control" value={form.Country} readOnly tabIndex={-1}
+                <input name="Country" data-nav-order="9" type="text" className="form-control" value={form.Country} readOnly
                   style={{...CI,background:'var(--bg-soft)',color:'var(--text-primary)',cursor:'not-allowed',fontWeight:600}}/>
               </F>
               <F label="Pincode" opt error={errors.PinCode}>
@@ -589,7 +819,7 @@ const CustomerForm = () => {
                         fontSize:'.8rem',fontWeight:700,color:form.PriceCodeType===pt?'var(--primary-dark)':'var(--text-muted)',
                         userSelect:'none',transition:'all .15s'}}>
                         <input type="radio" data-nav-order="13" name="PriceCodeType" value={pt}
-                          checked={form.PriceCodeType===pt} onChange={e => { change(e); if (pt === 'Fixed') requestAnimationFrame(() => document.querySelector('input[name="FixedPriceCodeID"]')?.focus()); }} disabled={isReadOnly}
+                          checked={form.PriceCodeType===pt} onChange={change} disabled={isReadOnly}
                           style={{accentColor:BRAND}}/>
                         <span>{pt}</span>
                       </label>
@@ -618,7 +848,7 @@ const CustomerForm = () => {
                             <span>{pc.DisplayLabel}</span>
                           </label>
                         ))}
-                        <button type="button" data-keyboard-field="true" data-nav-order="15" onClick={()=>setShowPriceRef(true)}
+                        <button ref={priceViewRef} type="button" data-keyboard-field="true" data-nav-order="15" onClick={()=>setShowPriceRef(true)}
                           style={{background:'none',border:'none',cursor:'pointer',color:'var(--primary)',fontSize:'.72rem',fontWeight:700,padding:'.28rem .4rem',textDecoration:'underline',textUnderlineOffset:2,alignSelf:'center',whiteSpace:'nowrap'}}>
                           📊 View Price Codes
                         </button>

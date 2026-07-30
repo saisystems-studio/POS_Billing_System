@@ -22,6 +22,13 @@ const SaveIcon = () => (
   </svg>
 );
 const Req = () => <span style={{ color: 'var(--danger)', marginLeft: 2 }}>*</span>;
+const normalizeNumericInput = rawValue => {
+  let value = String(rawValue ?? '').replace(/[^\d.]/g, '');
+  const parts = value.split('.');
+  if (parts.length > 2) value = `${parts[0]}.${parts.slice(1).join('')}`;
+  if (value.length > 1 && value.startsWith('0') && !value.startsWith('0.')) value = value.replace(/^0+/, '');
+  return value;
+};
 
 const spinEl = (
   <span style={{
@@ -199,9 +206,9 @@ const ProductGroupForm = () => {
                   id="pg-hsn"
                   type="text"
                   className={`pf-input${errors.HSNCode ? ' pf-input--error' : ''}`}
-                  placeholder="e.g. 1905"
+                  placeholder="Enter HSN code"
                   value={hsnCode}
-                  onChange={e => { setHsnCode(e.target.value); clearFieldError('HSNCode'); }}
+                  onChange={e => { setHsnCode(e.target.value.replace(/\D/g, '')); clearFieldError('HSNCode'); }}
                   disabled={isReadOnly}
                   maxLength={20}
                 />
@@ -216,9 +223,9 @@ const ProductGroupForm = () => {
                   type="text"
                   inputMode="numeric"
                   className={`pf-input${errors.GSTPercent ? ' pf-input--error' : ''}`}
-                  placeholder="0"
+                  placeholder="Enter GST percentage"
                   value={gstPercent}
-                  onChange={e => { setGstPercent(e.target.value); clearFieldError('GSTPercent'); }}
+                  onChange={e => { setGstPercent(normalizeNumericInput(e.target.value)); clearFieldError('GSTPercent'); }}
                   disabled={isReadOnly}
                   maxLength={3}
                 />

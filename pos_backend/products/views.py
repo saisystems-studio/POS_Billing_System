@@ -1,12 +1,13 @@
 ﻿# Product views
 
-from rest_framework import generics, filters, status
+from rest_framework import generics, filters, status, serializers
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from pos_backend.pagination import StandardResultsPagination, StableOrderingFilter
 from django.http import HttpResponse
+from django.shortcuts import get_object_or_404
 from django.db import transaction
-from django.db.models import Prefetch, Q
+from django.db.models import Case, IntegerField, Prefetch, Q, Value, When
 from decimal import Decimal, InvalidOperation
 from io import BytesIO
 import base64
@@ -228,6 +229,57 @@ class ProductWithPricesCreateView(APIView):
         return Response(ProductSerializer(out, context={'request': request}).data, status=status.HTTP_200_OK)
 
 
+class ProductWithFixedPriceCreateView(APIView):
+    """Create a product and its required customer-fixed price atomically."""
+    permission_classes = [IsAdminOrReadCreate]
+
+    def post(self, request, *args, **kwargs):
+        product_serializer = ProductWithPricesCreateSerializer(
+            data=request.data, context={'request': request}
+        )
+        product_serializer.is_valid(raise_exception=True)
+        try:
+            price_code_id = int(request.data.get('FixedPriceCodeID'))
+        except (TypeError, ValueError):
+            raise serializers.ValidationError({'FixedPriceCodeID': 'A valid fixed price code is required.'})
+        try:
+            price_value = Decimal(str(request.data.get('ProductPrice', '')).strip())
+        except (InvalidOperation, ValueError):
+            raise serializers.ValidationError({'ProductPrice': 'Enter a valid positive price.'})
+        if price_value <= 0:
+            raise serializers.ValidationError({'ProductPrice': 'Enter a valid positive price.'})
+        price_code = get_object_or_404(PriceCodeList, pk=price_code_id, IsActive=True)
+        data = dict(product_serializer.validated_data)
+        unit = data.get('UnitId')
+        with transaction.atomic():
+            product = Product.objects.create(
+                GroupId=data.get('GroupId'), ProductName=data['ProductName'],
+                ProductNameTamil=data.get('ProductNameTamil') or None,
+                HSNCode=data.get('HSNCode') or None, GSTPercent=data.get('GSTPercent', 0),
+                Quantity=data.get('Quantity'), Units=unit.UnitName if unit else data['Units'],
+                UnitId=unit, Description=data.get('Description') or None,
+                IsActive=data.get('IsActive', True), CreatedBy=request.user,
+            )
+            product_price = ProductPriceDetails.objects.create(
+                ProductId=product, PriceCodeID=price_code,
+                PriceName=price_code.PriceCodeName, ProductPrice=price_value,
+                CreatedBy=request.user,
+            )
+        out = Product.objects.select_related('CreatedBy', 'GroupId', 'UnitId').prefetch_related('prices').get(pk=product.pk)
+        price_data = ProductPriceDetailsSerializer(product_price, context={'request': request}).data
+        return Response({
+            'product': ProductSerializer(out, context={'request': request}).data,
+            'product_price': {
+                **price_data,
+                'product_id': product_price.ProductId_id,
+                'price_code_id': product_price.PriceCodeID_id,
+                'price_code_name': price_code.PriceCodeName,
+                'price': str(product_price.ProductPrice),
+                'is_active': bool(price_code.IsActive),
+            },
+        }, status=status.HTTP_201_CREATED)
+
+
 # â”€â”€â”€ Product Price â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class ProductPriceListCreateView(generics.ListCreateAPIView):
@@ -323,7 +375,8 @@ class ProductsForBillingView(generics.ListAPIView):
 
     def _limit(self):
         try:
-            return min(max(int(self.request.query_params.get('limit', 50)), 1), 100)
+            requested = self.request.query_params.get('page_size', self.request.query_params.get('limit', 20))
+            return min(max(int(requested), 1), 100)
         except (TypeError, ValueError):
             return 50
 
@@ -359,9 +412,17 @@ class ProductsForBillingView(generics.ListAPIView):
                 Q(UnitId__UnitName__icontains=search) |
                 Q(UnitId__UQC__icontains=search) |
                 Q(GroupId__GroupName__icontains=search)
+            ).annotate(
+                search_priority=Case(
+                    When(ProductName__iexact=search, then=Value(0)),
+                    When(ProductCode__iexact=search, then=Value(0)),
+                    When(ProductName__istartswith=search, then=Value(1)),
+                    When(ProductCode__istartswith=search, then=Value(1)),
+                    default=Value(2), output_field=IntegerField(),
+                )
             )
         active_prices = ProductPriceDetails.objects.select_related('PriceCodeID').filter(PriceCodeID__IsActive=True)
-        return qs.prefetch_related(Prefetch('prices', queryset=active_prices)).order_by('id')
+        return qs.prefetch_related(Prefetch('prices', queryset=active_prices)).order_by('search_priority' if search else 'id', 'ProductName')
 
     def list(self, request, *args, **kwargs):
         limit = self._limit()
@@ -408,6 +469,19 @@ class AllProductsForPricePageView(generics.ListAPIView):
 
     def filter_queryset(self, queryset):
         qs = super().filter_queryset(queryset)
+        search = (self.request.query_params.get('search') or '').strip()
+        if search:
+            qs = qs.annotate(
+                search_priority=Case(
+                    When(ProductName__iexact=search, then=Value(0)),
+                    When(ProductName__istartswith=search, then=Value(1)),
+                    When(ProductCode__iexact=search, then=Value(2)),
+                    When(ProductCode__istartswith=search, then=Value(3)),
+                    default=Value(4), output_field=IntegerField(),
+                )
+            ).order_by('search_priority', 'ProductName', 'id')
+        else:
+            qs = qs.order_by('ProductName', 'id')
         limit = self.request.query_params.get('limit')
         if limit:
             try:

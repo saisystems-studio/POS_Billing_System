@@ -141,14 +141,6 @@ class BillingCustomerDropdownView(generics.ListAPIView):
             .order_by('CustomerName')
         )
 
-    def filter_queryset(self, queryset):
-        qs = super().filter_queryset(queryset)
-        try:
-            limit = min(max(int(self.request.query_params.get('limit', 50)), 1), 100)
-        except (TypeError, ValueError):
-            limit = 50
-        return qs[:limit]
-
 
 class BillingConfigView(APIView):
     """
