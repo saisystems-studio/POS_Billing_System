@@ -350,8 +350,12 @@ const CustomerForm = () => {
     if (name === 'FixedPriceCodeID') selectedFixedPriceRef.current = e.target;
     setForm(p => {
       const n = { ...p, [name]: val };
-      if (name==='whatsapp_same') { n.WhatsappNumber = checked ? p.PhoneNumber : p.WhatsappNumber; }
-      if (name==='PhoneNumber' && p.whatsapp_same) n.WhatsappNumber = val;
+      if (name === 'whatsapp_same') {
+        n.WhatsappNumber = checked ? p.PhoneNumber : '';
+      }
+      if (name === 'PhoneNumber' && p.whatsapp_same) {
+        n.WhatsappNumber = val;
+      }
       if (name==='IsGSTCustomer' && !checked) n.GSTNo = '';
       if (name==='PriceCodeType' && val==='Random') { n.FixedPriceCodeID = ''; }
       return n;
@@ -449,6 +453,7 @@ const CustomerForm = () => {
           if (prior.element === target && now - prior.time <= 350) {
             checkboxEnterRef.current = { element: null, time: 0, timer: null };
             target.click();
+            requestAnimationFrame(() => focus(formEl.querySelector('input[name="WhatsappNumber"]')));
             return;
           }
           const timer = setTimeout(() => {

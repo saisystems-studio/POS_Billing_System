@@ -266,7 +266,7 @@ const GroupPopup = ({ groups, onClose, onSaved }) => {
   };
 
   return createPortal(
-    <div onClick={onClose} style={{position:'fixed',inset:0,zIndex:99500,background:'rgba(0,0,0,.45)',display:'flex',alignItems:'center',justifyContent:'center',padding:'1rem'}}>
+    <div data-product-group-entry-popup="true" onClick={onClose} style={{position:'fixed',inset:0,zIndex:99500,background:'rgba(0,0,0,.45)',display:'flex',alignItems:'center',justifyContent:'center',padding:'1rem'}}>
       <div onClick={e=>e.stopPropagation()} style={{background:'var(--card-bg)',borderRadius:12,boxShadow:'0 16px 48px rgba(0,0,0,.28)',padding:'1.25rem 1.375rem',width:'min(420px,96vw)',border:`1.5px solid ${BRAND}`}}>
         <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'1rem'}}>
           <span style={{fontWeight:800,fontSize:'.95rem',color:'var(--text-primary)',fontFamily:'var(--font-heading)'}}>Add Product Group</span>
@@ -608,11 +608,22 @@ const ProductForm = () => {
   const [priceEntryOpen, setPriceEntryOpen] = useState(false);
   const [newProductPrice, setNewProductPrice] = useState('');
   const [priceEntryError, setPriceEntryError] = useState('');
+  const [isMobile, setIsMobile] = useState(() => (
+    typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches
+  ));
   const priceEntryRef = useRef(null);
   const priceEntrySaveRef = useRef(false);
   const productNameRef = useRef(null);
   const saveInFlightRef = useRef(false);
   const taxValueSourceRef = useRef({ HSNCode: 'empty', GSTPercent: 'empty' });
+
+  useEffect(() => {
+    const media = window.matchMedia('(max-width: 767px)');
+    const update = () => setIsMobile(media.matches);
+    update();
+    media.addEventListener?.('change', update);
+    return () => media.removeEventListener?.('change', update);
+  }, []);
 
   useEffect(() => {
     if (priceEntryOpen) requestAnimationFrame(() => priceEntryRef.current?.focus());
@@ -914,6 +925,78 @@ const ProductForm = () => {
   if (loading) return <Layout><LoadingSpinner message="Loading product…"/></Layout>;
   const isReadOnly = isEdit && !isAdmin;
 
+  const mobileForm = (
+    <form className="product-mobile-form" onSubmit={e => e.preventDefault()} noValidate>
+      <div className="product-mobile-status-card">
+        <label style={labelStyle}>Status</label>
+        <Toggle value={form.IsActive} onChange={v => setForm(p => ({...p, IsActive:v}))} disabled={isReadOnly}/>
+      </div>
+
+      <section className="product-mobile-section">
+        <h3>Product Information</h3>
+        <div className="product-mobile-field">
+          <label style={labelStyle}>Product Name (Eng) <Req/></label>
+          <input ref={productNameRef} name="ProductName" data-nav-order="1" type="text" className={`form-control${errors.ProductName?' is-invalid':''}`} aria-invalid={Boolean(errors.ProductName)} placeholder="Enter English name" value={form.ProductName} onChange={handleChange} disabled={isReadOnly} style={{...CI,width:'100%'}}/>
+          {errors.ProductName && <div style={errStyle}>{errors.ProductName}</div>}
+          <div style={{fontSize:'.65rem',color:form.ProductName.length>PRODUCT_NAME_MAX?'var(--danger)':'var(--text-muted)',textAlign:'right'}}>{form.ProductName.length}/{PRODUCT_NAME_MAX}</div>
+        </div>
+        <div className="product-mobile-field">
+          <label style={labelStyle}>Product Code</label>
+          <input type="text" readOnly tabIndex={-1} value={productCode || 'â€¦'} style={{...CI,width:'100%',fontFamily:'ui-monospace,monospace',background:'var(--bg-soft)',color:'var(--text-muted)',cursor:'not-allowed',border:'1px solid var(--border)',borderRadius:'var(--radius)'}}/>
+        </div>
+        <div className="product-mobile-field">
+          <label style={labelStyle}>Product Group <Opt/></label>
+          <GroupDropdown groups={groups} value={form.GroupId ? parseInt(form.GroupId, 10) : null} onChange={v => setForm(p => ({...p, GroupId: v || ''}))} onGroupAdded={g => { setGroups(prev => prev.some(item => item.id === g.id) ? prev : [...prev, g].sort((a,b)=>a.GroupName.localeCompare(b.GroupName))); toast.success('Added', 'Product Group added successfully.'); }} onGroupSelected={handleGroupSelected} disabled={isReadOnly} error={errors.GroupId}/>
+          {errors.GroupId && <div style={errStyle}>{errors.GroupId}</div>}
+          {groupTaxHint && <div style={{fontSize:'.72rem',color:'var(--text-muted)',marginTop:'.3rem'}}>{groupTaxHint}</div>}
+        </div>
+        <div className="product-mobile-field">
+          <label style={labelStyle}>Unit <Req/></label>
+          <UnitDropdown units={units} value={form.UnitId} onChange={u => { setForm(p=>({...p,UnitId:u?.id || '',Units:u?.UnitName || ''})); if(errors.Units)setErrors(p=>({...p,Units:''})); }} onUnitAdded={u => { setUnits(prev => prev.some(item => item.id === u.id || (u.UQC && item.UQC && String(item.UQC).toLowerCase() === String(u.UQC).toLowerCase())) ? prev : [...prev, u].sort((a,b)=>a.UnitName.localeCompare(b.UnitName))); toast.success('Added', 'Unit added successfully.'); }} onUnitsChanged={list => setUnits(list)} disabled={isReadOnly} error={errors.Units}/>
+          {errors.Units && <div style={errStyle}>{errors.Units}</div>}
+        </div>
+        <div className="product-mobile-field">
+          <label style={labelStyle}>Product Name (Tamil) <Opt/></label>
+          <input name="ProductNameTamil" data-nav-order="4" type="text" className={`form-control${errors.ProductNameTamil?' is-invalid':''}`} aria-invalid={Boolean(errors.ProductNameTamil)} placeholder="Tamil product name" value={form.ProductNameTamil} onChange={handleChange} disabled={isReadOnly} lang="ta" style={{...CI,width:'100%'}}/>
+          {errors.ProductNameTamil && <div style={errStyle}>{errors.ProductNameTamil}</div>}
+        </div>
+        <div className="product-mobile-field">
+          <label style={labelStyle}>Quantity <Opt/></label>
+          <input name="Quantity" data-nav-order="5" type="number" min="0" step="1" className={`form-control${errors.Quantity?' is-invalid':''}`} placeholder="Enter quantity" value={form.Quantity} onChange={handleChange} disabled={isReadOnly} style={{...CI,width:'100%'}}/>
+          {errors.Quantity && <div style={errStyle}>{errors.Quantity}</div>}
+        </div>
+      </section>
+
+      <section className="product-mobile-section">
+        <h3>Pricing &amp; Tax Information</h3>
+        <div className="product-mobile-field">
+          <label style={labelStyle}>HSN <Req/></label>
+          <input name="HSNCode" data-nav-order="6" type="text" className={`form-control${errors.HSNCode?' is-invalid':''}`} aria-invalid={Boolean(errors.HSNCode)} placeholder="Enter HSN code" value={form.HSNCode} onChange={handleChange} disabled={isReadOnly} style={{...CI,width:'100%'}}/>
+          {errors.HSNCode && <div style={errStyle}>{errors.HSNCode}</div>}
+        </div>
+        <div className="product-mobile-field">
+          <label style={labelStyle}>GST Percentage <Req/></label>
+          <input name="GSTPercent" data-nav-order="7" type="number" min="0" max="100" step="1" className={`form-control${errors.GSTPercent?' is-invalid':''}`} aria-invalid={Boolean(errors.GSTPercent)} placeholder="Enter GST percentage" value={form.GSTPercent} onChange={handleChange} disabled={isReadOnly} style={{...CI,width:'100%'}}/>
+          {errors.GSTPercent && <div style={errStyle}>{errors.GSTPercent}</div>}
+        </div>
+      </section>
+
+      <section className="product-mobile-section">
+        <h3>Additional Information</h3>
+        <div className="product-mobile-field">
+          <label style={labelStyle}>Description <Opt/></label>
+          <textarea name="Description" data-nav-order="8" className="form-control" placeholder="Brief product description" value={form.Description} onChange={handleChange} onKeyDown={handleDescriptionKeyDown} disabled={isReadOnly} style={{width:'100%',fontSize:'.82rem',resize:'vertical',minHeight:64,padding:'.5rem .65rem'}}/>
+          {errors.Description && <div style={errStyle}>{errors.Description}</div>}
+        </div>
+      </section>
+
+      <div className="product-mobile-actions">
+        <button type="button" className="btn btn-outline-secondary" onClick={() => quickSalesReturn ? returnToSalesForm() : navigate('/products')} disabled={saving}>Cancel</button>
+        {!isReadOnly && <button type="button" data-save-action="true" className="btn btn-primary" onClick={handleSubmit} disabled={saving}>{saving ? <><Spin/> Savingâ€¦</> : (isEdit ? 'Update Product' : 'Save Product')}</button>}
+      </div>
+    </form>
+  );
+
   return (
     <Layout>
       {priceEntryOpen && quickFixedPriceContext && (
@@ -957,15 +1040,16 @@ const ProductForm = () => {
             {isEdit ? (isAdmin ? 'Update product details' : 'Viewing product (read-only)') : 'Add a new product'}
           </p>
         </div>
-        <div style={{display:'flex',alignItems:'center',gap:'.5rem'}}>
+        {!isMobile && <div className="product-header-status" style={{display:'flex',alignItems:'center',gap:'.5rem'}}>
           <span style={{fontSize:'.72rem',fontWeight:700,color:'var(--text-muted)'}}>Status</span>
           <Toggle value={form.IsActive} onChange={v => setForm(p => ({...p, IsActive:v}))} disabled={isReadOnly}/>
-        </div>
+        </div>}
       </div>
 
       {apiError && <div className="alert alert-warning animate-in"><span>⚠️</span><span>{apiError}</span></div>}
 
-      <form className="professional-form-layout product-professional-form" onSubmit={e => e.preventDefault()} noValidate>
+      {isMobile ? mobileForm : (
+        <form className="professional-form-layout product-professional-form" onSubmit={e => e.preventDefault()} noValidate>
         <div className="card animate-in animate-in-1 professional-form-container product-form-container" style={{marginBottom:'1rem'}}>
           <div className="card-body professional-form-content" style={{padding:'.875rem 1.25rem'}}>
             <div className="professional-section-title product-section-information">Product Information</div>
@@ -1135,7 +1219,8 @@ const ProductForm = () => {
             </button>
           )}
         </div>
-      </form>
+        </form>
+      )}
     </Layout>
   );
 };

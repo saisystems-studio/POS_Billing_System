@@ -17379,3 +17379,505 @@ video {
     grid-column: auto;
   }
 }
+
+/* Barcode Generator: compact centered layout (page-specific overrides). */
+.barcode-page-header,
+.barcode-generator-form {
+  width: min(100%, 900px) !important;
+  max-width: 900px !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+}
+
+.barcode-generator-form {
+  flex: 0 0 auto !important;
+  min-height: 0 !important;
+}
+
+.barcode-generator-card {
+  width: 100% !important;
+  max-width: 900px !important;
+  min-height: 0 !important;
+  flex: 0 0 auto !important;
+}
+
+.barcode-generator-card > .pf-card-body {
+  min-height: 0 !important;
+  flex: 0 0 auto !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  column-gap: 1rem !important;
+  row-gap: .65rem !important;
+  padding: 1rem 1.25rem 1.05rem !important;
+}
+
+.barcode-generator-form .pf-label {
+  margin-bottom: .22rem !important;
+}
+
+.barcode-generator-form .barcode-info-box {
+  margin-top: .1rem !important;
+}
+
+.barcode-generator-form .barcode-card-actions {
+  margin-top: .15rem !important;
+  padding-top: .7rem !important;
+  gap: .55rem !important;
+}
+
+@media (max-width: 1023px) {
+  .barcode-generator-card > .pf-card-body {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+}
+
+@media (max-width: 640px) {
+  .barcode-page-header,
+  .barcode-generator-form {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  .barcode-generator-card > .pf-card-body {
+    padding: .85rem !important;
+    row-gap: .6rem !important;
+  }
+
+  .barcode-generator-form .barcode-card-actions {
+    padding-top: .6rem !important;
+  }
+}
+
+/* Barcode Generator: left-aligned heading within the same form-width wrapper. */
+.barcode-page-header {
+  align-items: flex-start !important;
+  justify-content: flex-start !important;
+  margin-bottom: .75rem !important;
+  text-align: left !important;
+}
+
+.barcode-page-header > div,
+.barcode-page-header h2,
+.barcode-page-header .page-header-sub {
+  width: 100% !important;
+  text-align: left !important;
+}
+
+/* Add Product: contained responsive grid for narrow screens. */
+.product-professional-form .professional-form-content,
+.product-professional-form .product-field,
+.product-professional-form .product-form-row,
+.product-professional-form .professional-section-title {
+  min-width: 0 !important;
+  box-sizing: border-box !important;
+}
+
+.product-professional-form .professional-form-content {
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  column-gap: 1rem !important;
+  row-gap: .7rem !important;
+}
+
+.product-professional-form .product-field,
+.product-professional-form .product-field > *,
+.product-professional-form input,
+.product-professional-form select,
+.product-professional-form textarea,
+.product-professional-form [role="combobox"] {
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  box-sizing: border-box !important;
+}
+
+@media (max-width: 768px) {
+  .product-professional-form,
+  .product-professional-form > .product-form-container,
+  .product-professional-form .professional-form-content {
+    width: 100% !important;
+    max-width: 100% !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+    box-sizing: border-box !important;
+  }
+
+  .product-professional-form .professional-form-content {
+    grid-template-columns: minmax(0, 1fr) !important;
+    column-gap: 0 !important;
+    row-gap: .65rem !important;
+    padding: 1rem !important;
+  }
+
+  .product-professional-form .product-form-row,
+  .product-professional-form .product-field,
+  .product-professional-form .professional-section-title,
+  .product-professional-form .professional-form-content > * {
+    grid-column: 1 / -1 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+  }
+
+  .product-professional-form .professional-form-action-footer {
+    width: 100% !important;
+    max-width: 100% !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+    box-sizing: border-box !important;
+    overflow: visible !important;
+  }
+}
+
+.product-mobile-status {
+  display: none;
+}
+
+/* Add Product: final mobile-only field order and compact sizing. */
+@media (max-width: 767px) {
+  .product-professional-form,
+  .product-professional-form > .product-form-container,
+  .product-professional-form .professional-form-content {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    box-sizing: border-box !important;
+    overflow: visible !important;
+  }
+
+  .product-professional-form .professional-form-content {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 12px !important;
+    padding: 12px !important;
+  }
+
+  .product-professional-form .product-form-row {
+    display: contents !important;
+  }
+
+  .product-professional-form .professional-form-content > *,
+  .product-professional-form .product-field,
+  .product-professional-form .professional-section-title {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    box-sizing: border-box !important;
+  }
+
+  .product-header-status {
+    display: none !important;
+  }
+
+  .product-professional-form .product-mobile-status {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 4px !important;
+    order: 0 !important;
+  }
+
+  /* Required mobile visual order: status, name, code, group, unit,
+     Tamil, quantity, HSN, GST, description. */
+  .product-professional-form .product-section-information { order: 1 !important; }
+  .product-professional-form .product-field-name { order: 2 !important; }
+  .product-professional-form .product-field-code { order: 3 !important; }
+  .product-professional-form .product-field-group { order: 4 !important; }
+  .product-professional-form .product-field-unit { order: 5 !important; }
+  .product-professional-form .product-field-tamil { order: 6 !important; }
+  .product-professional-form .product-field-quantity { order: 7 !important; }
+  .product-professional-form .product-section-tax { order: 7.5 !important; }
+  .product-professional-form .product-field-hsn { order: 8 !important; }
+  .product-professional-form .product-field-gst { order: 9 !important; }
+  .product-professional-form .product-section-additional { order: 9.5 !important; }
+  .product-professional-form .product-field-description { order: 10 !important; }
+
+  .product-professional-form .professional-form-content > div:not(.product-field):not(.product-form-row):not(.professional-section-title) {
+    order: 10 !important;
+  }
+
+  .product-professional-form .professional-section-title {
+    grid-column: 1 / -1 !important;
+    margin: 2px 0 0 !important;
+    padding: 0 0 4px !important;
+    font-size: .82rem !important;
+  }
+
+  .product-professional-form .product-field {
+    margin: 0 !important;
+  }
+
+  .product-professional-form .product-field > label {
+    display: block !important;
+    width: 100% !important;
+    margin-bottom: 4px !important;
+  }
+
+  .product-professional-form .form-control,
+  .product-professional-form input,
+  .product-professional-form select {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    min-height: 40px !important;
+    box-sizing: border-box !important;
+    border-radius: 8px !important;
+  }
+
+  .product-professional-form .product-lookup-with-add {
+    display: flex !important;
+    align-items: center !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    gap: 8px !important;
+    box-sizing: border-box !important;
+  }
+
+  .product-professional-form .product-lookup-with-add > .app-dropdown {
+    flex: 1 1 auto !important;
+    width: auto !important;
+    max-width: none !important;
+    min-width: 0 !important;
+  }
+
+  .product-professional-form .product-lookup-with-add > .app-dropdown,
+  .product-professional-form .product-lookup-with-add > .app-dropdown > input,
+  .product-professional-form .product-lookup-add-button {
+    height: 40px !important;
+    min-height: 40px !important;
+    box-sizing: border-box !important;
+  }
+
+  .product-professional-form .product-lookup-add-button {
+    flex: 0 0 40px !important;
+    width: 40px !important;
+    min-width: 40px !important;
+    max-width: 40px !important;
+    padding: 0 !important;
+  }
+
+  .product-professional-form .professional-form-action-footer {
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 4px 0 0 !important;
+    padding: 12px 0 0 !important;
+    gap: 8px !important;
+    box-sizing: border-box !important;
+    overflow: visible !important;
+  }
+
+  .product-professional-form .professional-form-action-footer > .btn {
+    flex: 0 1 160px !important;
+    width: auto !important;
+    min-width: 0 !important;
+    box-sizing: border-box !important;
+  }
+}
+
+/* Add Product: true mobile markup layout (the desktop form is not rendered). */
+@media (max-width: 767px) {
+  .product-mobile-form {
+    display: flex !important;
+    flex-direction: column !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    gap: 12px !important;
+    margin: 0 !important;
+    padding: 0 12px 12px !important;
+    box-sizing: border-box !important;
+    overflow: visible !important;
+  }
+
+  .product-mobile-status-card,
+  .product-mobile-section,
+  .product-mobile-actions,
+  .product-mobile-field {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    box-sizing: border-box !important;
+  }
+
+  .product-mobile-status-card {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 4px !important;
+    padding: 12px !important;
+    border: 1px solid var(--divider) !important;
+    border-radius: 8px !important;
+    background: var(--card-bg) !important;
+  }
+
+  .product-mobile-section {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 12px !important;
+    padding: 0 !important;
+  }
+
+  .product-mobile-section h3 {
+    width: 100% !important;
+    margin: 4px 0 0 !important;
+    padding: 0 0 6px !important;
+    border-bottom: 1px solid var(--divider) !important;
+    color: var(--primary) !important;
+    font-size: .82rem !important;
+    line-height: 1.25 !important;
+    text-align: left !important;
+  }
+
+  .product-mobile-field {
+    display: block !important;
+    margin: 0 !important;
+  }
+
+  .product-mobile-field > label {
+    display: block !important;
+    width: 100% !important;
+    margin-bottom: 4px !important;
+  }
+
+  .product-mobile-field input,
+  .product-mobile-field select,
+  .product-mobile-field textarea,
+  .product-mobile-field .form-control {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    box-sizing: border-box !important;
+    border-radius: 8px !important;
+  }
+
+  .product-mobile-form .product-lookup-with-add {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) 40px !important;
+    align-items: stretch !important;
+    gap: 8px !important;
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+
+  .product-mobile-form .product-lookup-with-add > .app-dropdown {
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+
+  .product-mobile-form .product-lookup-add-button {
+    width: 40px !important;
+    min-width: 40px !important;
+    max-width: 40px !important;
+    height: 40px !important;
+    min-height: 40px !important;
+    box-sizing: border-box !important;
+  }
+
+  .product-mobile-actions {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 8px !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  .product-mobile-actions > .btn {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+  }
+}
+
+@media (max-width: 430px) {
+  .product-professional-form .professional-form-action-footer {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .product-professional-form .professional-form-action-footer > .btn {
+    width: 100% !important;
+    max-width: 100% !important;
+    flex: 1 1 auto !important;
+  }
+}
+
+@media (max-width: 767px) {
+  [data-unit-entry-popup] > div,
+  [data-product-group-entry-popup] > div {
+    width: calc(100vw - 32px) !important;
+    max-width: calc(100vw - 32px) !important;
+    box-sizing: border-box !important;
+    padding: 12px !important;
+  }
+
+  [data-product-group-entry-popup] > div > div[style*="grid-template-columns"] {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+}
+
+/* Add Product: authoritative mobile section and field sequence. */
+@media (max-width: 767px) {
+  .product-professional-form .professional-form-content {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+    grid-auto-flow: row !important;
+    gap: 12px !important;
+    padding: 12px !important;
+    overflow: visible !important;
+  }
+
+  .product-professional-form .product-form-row {
+    display: contents !important;
+  }
+
+  .product-professional-form .product-mobile-status { order: 0 !important; }
+  .product-professional-form .product-section-information { order: 1 !important; }
+  .product-professional-form .product-field-name { order: 2 !important; }
+  .product-professional-form .product-field-code { order: 3 !important; }
+  .product-professional-form .product-field-group { order: 4 !important; }
+  .product-professional-form .product-field-unit { order: 5 !important; }
+  .product-professional-form .product-field-tamil { order: 6 !important; }
+  .product-professional-form .product-field-quantity { order: 7 !important; }
+  .product-professional-form .product-section-tax { order: 8 !important; }
+  .product-professional-form .product-field-hsn { order: 9 !important; }
+  .product-professional-form .product-field-gst { order: 10 !important; }
+  .product-professional-form .product-section-additional { order: 11 !important; }
+  .product-professional-form .product-field-description { order: 12 !important; }
+
+  .product-professional-form .professional-form-content > *,
+  .product-professional-form .product-field,
+  .product-professional-form .professional-section-title {
+    grid-column: 1 / -1 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    box-sizing: border-box !important;
+  }
+
+  .product-professional-form .professional-section-title {
+    margin: 2px 0 0 !important;
+    padding: 0 0 5px !important;
+    text-align: left !important;
+  }
+
+  .product-professional-form .product-lookup-with-add {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) 40px !important;
+    gap: 8px !important;
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+
+  .product-professional-form .product-lookup-with-add > .app-dropdown {
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+
+  .product-professional-form .product-lookup-add-button {
+    width: 40px !important;
+    min-width: 40px !important;
+    max-width: 40px !important;
+    height: 40px !important;
+    min-height: 40px !important;
+  }
+}
