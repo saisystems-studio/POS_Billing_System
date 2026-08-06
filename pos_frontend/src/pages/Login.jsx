@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import companyService from '../services/companyService';
@@ -135,6 +135,11 @@ const Login = () => {
   const [remember, setRemember] = useState(false);
   const [companyName, setCompanyName] = useState('');
   const [companyLogo, setCompanyLogo] = useState(null);
+  const usernameRef = useRef(null);
+  const passwordRef = useRef(null);
+  const rememberRef = useRef(null);
+  const signInRef = useRef(null);
+  const rememberToggledRef = useRef(false);
   const { login }  = useAuth();
   const navigate   = useNavigate();
 
@@ -151,6 +156,7 @@ const Login = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (loading) return;
     setError('');
     if (!username.trim() || !password.trim()) {
       setError('Please enter your username and password.');
@@ -237,6 +243,8 @@ const Login = () => {
                     placeholder="Enter your username"
                     value={username}
                     onChange={e => setUsername(e.target.value)}
+                    ref={usernameRef}
+                    onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();passwordRef.current?.focus();}}}
                     disabled={loading}
                     autoFocus
                     autoComplete="username"
@@ -259,6 +267,8 @@ const Login = () => {
                     placeholder="Enter your password"
                     value={password}
                     onChange={e => setPassword(e.target.value)}
+                    ref={passwordRef}
+                    onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();rememberRef.current?.focus();}}}
                     disabled={loading}
                     autoComplete="current-password"
                     style={{ paddingRight: '2.75rem' }}
@@ -274,14 +284,34 @@ const Login = () => {
               {/* Remember me */}
               <div className="lp-field" style={{ marginBottom: '.5rem' }}>
                 <label className="lp-remember">
-                  <input type="checkbox" checked={remember}
-                    onChange={e => setRemember(e.target.checked)} />
+                  <input ref={rememberRef} type="checkbox" checked={remember}
+                    onChange={e => setRemember(e.target.checked)}
+                    onKeyDown={e=>{
+                      if(e.key==='Enter'){
+                        e.preventDefault();
+                        if(rememberToggledRef.current){
+                          rememberToggledRef.current=false;
+                          signInRef.current?.focus();
+                        } else {
+                          setRemember(v=>!v);
+                          rememberToggledRef.current=true;
+                        }
+                        return;
+                      }
+                      if(e.key===' '){
+                        e.preventDefault();
+                        setRemember(v=>!v);
+                        rememberToggledRef.current=true;
+                        return;
+                      }
+                    }}
+                    onClick={e=>{if(e.detail > 0) rememberToggledRef.current=false;}} />
                   <span>Remember me</span>
                 </label>
               </div>
 
               {/* Sign In button */}
-              <button type="submit" className="lp-submit" disabled={loading}>
+              <button ref={signInRef} type="submit" className="lp-submit" disabled={loading}>
                 {loading
                   ? <><span className="lp-spinner" aria-hidden="true" /> Signing in…</>
                   : <>Sign In <ArrowIcon /></>

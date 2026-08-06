@@ -191,6 +191,13 @@ const SearchDropdown = ({
   };
 
   const handleKeyDown = e => {
+    if (e.key === 'Enter' && !openRef.current) {
+      e.preventDefault();
+      e.stopPropagation();
+      setDropdownOpen(true);
+      setHighlightedIndex(filteredRef.current.length ? 0 : -1);
+      return;
+    }
     if (e.key === 'ArrowDown') {
       e.preventDefault();
       e.stopPropagation();
@@ -261,7 +268,8 @@ const SearchDropdown = ({
           value={query}
           disabled={disabled}
           autoComplete="off"
-          onFocus={() => { setDropdownOpen(true); setHighlightedIndex(-1); }}
+          onFocus={() => setHighlightedIndex(-1)}
+          onMouseDown={() => { if (!disabled) { setDropdownOpen(true); setHighlightedIndex(-1); } }}
           onBlur={() => setTimeout(() => {
             if (wrapRef.current?.contains(document.activeElement)) return;
             setDropdownOpen(false);

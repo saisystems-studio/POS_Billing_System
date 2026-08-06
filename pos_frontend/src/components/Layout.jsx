@@ -3,6 +3,7 @@ import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useCompany } from '../context/CompanyContext';
 import BackButton from './BackButton';
+import MobilePageHeader from './MobilePageHeader';
 
 /* ── SVG Icon kit ── */
 const Ic = {
@@ -389,6 +390,14 @@ const Layout = ({ children }) => {
 
       {/* ── Main content ── */}
       <div className="main-content">
+        {!isDashboard && <MobilePageHeader
+          onBack={() => {
+            if (window.history.length > 1) navigate(-1);
+            else navigate('/dashboard');
+          }}
+          onMenuOpen={() => setSidebarOpen(v => !v)}
+          menuOpen={sidebarOpen}
+        />}
         {/* Top bar — only on Dashboard; inner pages have no topbar (saves navbar-height space) */}
         {isDashboard ? (
           <header className="top-bar app-mobile-header dashboard-mobile-header">
@@ -436,18 +445,7 @@ const Layout = ({ children }) => {
               </div>
             </div>
           </header>
-        ) : (
-          /* Mobile only: minimal bar just for hamburger — hidden on desktop via CSS */
-          <header className="top-bar top-bar-inner app-mobile-header" aria-hidden={undefined}>
-            <div className="top-bar-left">
-              <button type="button" className="hamburger app-mobile-menu-button" onClick={() => setSidebarOpen(v => !v)}
-                aria-label={sidebarOpen ? 'Close navigation menu' : 'Open navigation menu'}
-                aria-expanded={sidebarOpen} aria-controls="app-sidebar">
-                <Ic.Menu/>
-              </button>
-            </div>
-          </header>
-        )}
+        ) : null}
 
         <main className={`content${isDashboard ? ' content-dashboard' : ' content-inner'}`}>
           {!isDashboard && <BackButton />}

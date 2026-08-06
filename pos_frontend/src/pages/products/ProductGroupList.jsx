@@ -243,7 +243,12 @@ const ProductGroupList = () => {
                         style={{ cursor: 'pointer', position:'relative' }}
                         onMouseEnter={(e) => { e.currentTarget.closest('.list-keyboard-zone')?.focus(); setHoveredGroupId(g.id); setSelectedGroupId(g.id); setDismissedActionGroupId(null); }}
                         onMouseLeave={() => setHoveredGroupId(prev => prev === g.id ? null : prev)}
-                        onClick={() => { setSelectedGroupId(g.id); setDismissedActionGroupId(null); }}>
+                        onClick={e => {
+                          if (e.target.closest?.('button, input, a, .row-action-popup')) return;
+                          setSelectedGroupId(g.id);
+                          setDismissedActionGroupId(null);
+                          if (isAdmin) navigate(`/products/groups/${g.id}`);
+                        }}>
                         <td style={{ color: 'var(--text-muted)', fontSize: '.8125rem' }}>
                           {(loadedPage - 1) * pageSize + idx + 1}
                         </td>

@@ -31,6 +31,7 @@ const EMPTY = {
   IsGSTCustomer:false, GSTNo:'',
   PriceCodeType:'Random', FixedPriceCodeID:'',
 };
+const CUSTOMER_DRAFT_PREFIX = 'customer-form-draft:';
 
 // Fields that are always optional (address/location)
 // Only CustomerName and PriceCodeType are always required.
@@ -50,10 +51,10 @@ const Toggle = ({ value, onChange, disabled }) => (
     <span style={{fontSize:'.76rem',fontWeight:700,color:value?BRAND:'var(--text-muted)'}}>{value?'Active':'Inactive'}</span>
   </div>
 );
-const CBx = ({ checked, onChange, disabled, label, navOrder, name }) => (
-  <label className="form-check customer-checkbox-row" style={{display:'flex',alignItems:'center',gap:'.3rem',cursor:disabled?'default':'pointer',
+const CBx = ({ checked, onChange, disabled, label, navOrder, name, onFocus, onBlur, onClick, className = '' }) => (
+  <label className={`form-check customer-checkbox-row ${className}`} style={{display:'flex',alignItems:'center',gap:'.3rem',cursor:disabled?'default':'pointer',
     fontSize:'.74rem',fontWeight:500,color:'var(--text-label)',userSelect:'none'}}>
-    <input type="checkbox" name={name} data-nav-order={navOrder} className="form-check-input" checked={checked} onChange={onChange} disabled={disabled}
+    <input type="checkbox" name={name} data-nav-order={navOrder} className="form-check-input" checked={checked} onChange={onChange} onFocus={onFocus} onBlur={onBlur} onClick={onClick} disabled={disabled}
       style={{width:13,height:13,accentColor:BRAND,cursor:disabled?'not-allowed':'pointer'}}/>
     <span className="form-check-label">{label}</span>
   </label>
@@ -132,8 +133,12 @@ const SearchableDropdown = ({ value, onChange, options, placeholder, disabled, e
         placeholder={placeholder} value={query} disabled={disabled} autoComplete="off"
         style={{...CI,paddingRight:'2rem',borderColor:error?'var(--danger)':undefined}}
         onChange={e=>{setQuery(e.target.value);setOpen(true);setHighlightedIndex(-1);if(!e.target.value.trim())onChange('');}}
-        onFocus={()=>{setOpen(true);setHighlightedIndex(-1);}}
+        onFocus={()=>setHighlightedIndex(-1)}
+        onMouseDown={()=>{if (!disabled) {setOpen(true);setHighlightedIndex(-1);}}}
         onKeyDown={e=>{
+          if (e.key === 'Enter' && !open) {
+            e.preventDefault(); e.stopPropagation(); setOpen(true); setHighlightedIndex(sorted.length ? 0 : -1); return;
+          }
           if (e.key === 'Escape' && open) {
             e.preventDefault(); e.stopPropagation(); setOpen(false); setHighlightedIndex(-1); return;
           }
@@ -272,12 +277,71 @@ const CustomerForm = () => {
   const [createdInfo,  setCreatedInfo]  = useState(null);
   const [priceCodes,   setPriceCodes]   = useState([]);
   const [showPriceRef, setShowPriceRef] = useState(false);
+  const [gstPricingOpen, setGstPricingOpen] = useState(false);
+  const [addressOpen, setAddressOpen] = useState(false);
+  const [activeStep, setActiveStep] = useState(1);
+  const [isCustomerDraftReady, setIsCustomerDraftReady] = useState(false);
+  const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches);
   const customerFormRef = useRef(null);
   const priceViewRef = useRef(null);
   const selectedFixedPriceRef = useRef(null);
-  const checkboxEnterRef = useRef({ element: null, time: 0, timer: null });
+  const whatsappEnterRef = useRef({ element: null, count: 0 });
+  const originalFormRef = useRef(null);
   const returnToSales = Boolean(location.state?.returnToSales);
   const salesDraft = location.state?.salesDraft || null;
+  const customerDraftKey = `${CUSTOMER_DRAFT_PREFIX}${isEdit ? `/customers/${id}/edit` : '/customers/new'}`;
+
+  useEffect(() => {
+    const media = window.matchMedia('(max-width: 767px)');
+    const update = () => setIsMobile(media.matches);
+    update();
+    media.addEventListener?.('change', update);
+    return () => media.removeEventListener?.('change', update);
+  }, []);
+
+  const readCustomerDraft = useCallback(() => {
+    try {
+      const raw = sessionStorage.getItem(customerDraftKey);
+      return raw ? JSON.parse(raw) : null;
+    } catch { return null; }
+  }, [customerDraftKey]);
+
+  useEffect(() => {
+    if (isEdit) return undefined;
+    const draft = readCustomerDraft();
+    if (draft?.form) {
+      setForm(current => ({ ...current, ...draft.form }));
+      setGstPricingOpen(Boolean(draft.gstPricingOpen));
+      setAddressOpen(Boolean(draft.addressOpen));
+      setActiveStep(Number(draft.activeStep) || 1);
+    }
+    setIsCustomerDraftReady(true);
+    return undefined;
+  }, [isEdit, readCustomerDraft]);
+
+  useEffect(() => {
+    if (!isEdit || !originalFormRef.current) return;
+    const draft = readCustomerDraft();
+    if (draft?.form) {
+      setForm(current => ({ ...current, ...draft.form }));
+      setGstPricingOpen(Boolean(draft.gstPricingOpen));
+      setAddressOpen(Boolean(draft.addressOpen));
+      setActiveStep(Number(draft.activeStep) || 1);
+    } else {
+      const original = originalFormRef.current;
+      setAddressOpen(Boolean(original.Address || original.District || original.State || original.PinCode));
+      setGstPricingOpen(Boolean(original.IsGSTCustomer || original.GSTNo || original.PriceCodeType === 'Fixed' || original.FixedPriceCodeID));
+    }
+    setIsCustomerDraftReady(true);
+  }, [isEdit, readCustomerDraft, originalFormRef.current]);
+
+  useEffect(() => {
+    if (!isCustomerDraftReady) return;
+    try {
+      sessionStorage.setItem(customerDraftKey, JSON.stringify({ form, gstPricingOpen, addressOpen, activeStep }));
+    } catch { /* form remains usable if storage is unavailable */ }
+  }, [form, gstPricingOpen, addressOpen, activeStep, customerDraftKey, isCustomerDraftReady]);
 
   const goBackAfterCustomerEntry = useCallback((selectedCustomer = null) => {
     if (returnToSales) {
@@ -313,7 +377,7 @@ const CustomerForm = () => {
         setCustCode(data.CustomerCode || '');
         const parts = (data.Address || '').split('|').map(s => s.trim());
         const cfg = data.PriceConfig;
-        setForm({
+        const loadedForm = {
           CustomerName:    data.CustomerName || '',
           PhoneNumber:     data.PhoneNumber || '',
           whatsapp_same:   data.IsWhatsappSameAsPhone || false,
@@ -329,7 +393,9 @@ const CustomerForm = () => {
           GSTNo:           data.GSTNo || '',
           PriceCodeType:   cfg ? cfg.PriceCodeType : (data.PriceCodeType || 'Fixed'),
           FixedPriceCodeID: cfg ? (cfg.FixedPriceCodeID || '') : '',
-        });
+        };
+        originalFormRef.current = loadedForm;
+        setForm(loadedForm);
         setCreatedInfo({ CreatedBy: data.CreatedByUsername || '', CreatedOn: data.CreatedOn });
       } catch (err) {
         setApiError(err.response?.data?.detail || 'Failed to load customer.');
@@ -380,6 +446,25 @@ const CustomerForm = () => {
     if (errors.State) setErrors(p => ({ ...p, State: '' }));
   }, [errors]);
 
+  const resetTarget = isEdit && originalFormRef.current ? originalFormRef.current : EMPTY;
+  const hasUnsavedCustomerChanges = Object.keys(EMPTY).some(key => form[key] !== resetTarget[key]);
+  const performReset = useCallback(() => {
+    const target = isEdit && originalFormRef.current ? originalFormRef.current : EMPTY;
+    setForm({ ...target });
+    setErrors({});
+    setApiError('');
+    setActiveStep(1);
+    setAddressOpen(Boolean(isEdit && resetTarget.Address));
+    setGstPricingOpen(Boolean(isEdit && (target.IsGSTCustomer || target.GSTNo || target.PriceCodeType === 'Fixed' || target.FixedPriceCodeID)));
+    setResetConfirmOpen(false);
+    try { sessionStorage.removeItem(customerDraftKey); } catch { /* ignore storage failures */ }
+    requestAnimationFrame(() => customerFormRef.current?.querySelector('input[name="CustomerName"]')?.focus());
+  }, [isEdit, customerDraftKey]);
+  const requestReset = () => {
+    if (hasUnsavedCustomerChanges) setResetConfirmOpen(true);
+    else performReset();
+  };
+
   // Add Customer has a conditional, form-local Enter flow. The shared
   // shortcut component opts out for this form only (see its scoped guard).
   useEffect(() => {
@@ -392,7 +477,6 @@ const CustomerForm = () => {
       const names = ['CustomerName','EmailId','PhoneNumber','whatsapp_same','WhatsappNumber','Address',
         'District','State','Country','PinCode','IsGSTCustomer','GSTNo'];
       const result = names
-        .filter(n => !(n === 'WhatsappNumber' && form.whatsapp_same))
         .map(n => formEl.querySelector(`[name="${n}"]`))
         .filter(visible);
       if (form.PriceCodeType === 'Random') {
@@ -438,31 +522,36 @@ const CustomerForm = () => {
         && target.closest('.app-dropdown').querySelector('ul')) return;
       if (event.key === 'Enter' && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey) {
         event.preventDefault(); event.stopPropagation();
-        if (target.type === 'checkbox') {
-          if (event.repeat) return;
-          if (target.name !== 'whatsapp_same') {
-            target.click();
-            if (target.name === 'IsGSTCustomer' && !target.checked) {
-              requestAnimationFrame(() => focus(formEl.querySelector('input[name="PriceCodeType"]')));
+          if (target.type === 'checkbox') {
+            if (event.repeat) return;
+            if (target.name !== 'whatsapp_same') {
+              target.click();
+              if (target.name === 'IsGSTCustomer') {
+                requestAnimationFrame(() => {
+                  if (target.checked) focus(formEl.querySelector('input[name="GSTNo"]'));
+                  else focus(formEl.querySelector('input[name="PriceCodeType"]'));
+                });
+              }
+              return;
             }
-            return;
-          }
-          const now = Date.now();
-          const prior = checkboxEnterRef.current;
-          if (prior.timer) clearTimeout(prior.timer);
-          if (prior.element === target && now - prior.time <= 350) {
-            checkboxEnterRef.current = { element: null, time: 0, timer: null };
+            const enterState = whatsappEnterRef.current;
+            if (enterState.element !== target || enterState.count === 0) {
+              const timer = setTimeout(() => {
+                const pending = whatsappEnterRef.current;
+                if (pending.element === target && pending.count === 1) {
+                  whatsappEnterRef.current = { element: target, count: 0 };
+                  focus(formEl.querySelector('input[name="WhatsappNumber"]'));
+                }
+              }, 280);
+              whatsappEnterRef.current = { element: target, count: 1, timer };
+              return;
+            }
+            if (enterState.timer) clearTimeout(enterState.timer);
             target.click();
+            whatsappEnterRef.current = { element: target, count: 0 };
             requestAnimationFrame(() => focus(formEl.querySelector('input[name="WhatsappNumber"]')));
             return;
           }
-          const timer = setTimeout(() => {
-            checkboxEnterRef.current = { element: null, time: 0, timer: null };
-            next(target);
-          }, 350);
-          checkboxEnterRef.current = { element: target, time: now, timer };
-          return;
-        }
         if (target.name === 'PriceCodeType') {
           if (!target.checked) {
             target.click();
@@ -528,17 +617,31 @@ const CustomerForm = () => {
           target.dispatchEvent(new Event('input', { bubbles: true }));
           target.dispatchEvent(new Event('change', { bubbles: true }));
         }
-        requestAnimationFrame(() => target.focus());
+        requestAnimationFrame(() => {
+          target.focus();
+          if (typeof target.setSelectionRange === 'function') target.setSelectionRange(0, 0);
+        });
         return;
       }
       if (event.key === 'Backspace' && target instanceof HTMLInputElement
+        && target.name === 'WhatsappNumber' && form.whatsapp_same && !target.disabled) {
+        event.preventDefault(); event.stopPropagation();
+        previous(target);
+        return;
+      }
+      if ((event.key === 'Backspace' || event.key === 'Delete') && target instanceof HTMLInputElement
         && !target.disabled && !target.readOnly && !/checkbox|radio/.test(target.type)) {
         event.preventDefault(); event.stopPropagation();
         if (!target.value) { previous(target); return; }
         const start = typeof target.selectionStart === 'number' ? target.selectionStart : target.value.length;
         const end = typeof target.selectionEnd === 'number' ? target.selectionEnd : start;
-        const from = start === end ? Math.max(0, start - 1) : start;
-        const value = `${target.value.slice(0, from)}${target.value.slice(end)}`;
+        const from = start === end
+          ? (event.key === 'Backspace' ? Math.max(0, start - 1) : start)
+          : start;
+        const to = start === end
+          ? (event.key === 'Backspace' ? start : Math.min(target.value.length, end + 1))
+          : end;
+        const value = `${target.value.slice(0, from)}${target.value.slice(to)}`;
         const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
         setter?.call(target, value);
         target.dispatchEvent(new Event('input', { bubbles: true }));
@@ -546,7 +649,7 @@ const CustomerForm = () => {
         requestAnimationFrame(() => target.setSelectionRange?.(from, from));
         return;
       }
-      if (event.key === 'Backspace' && target instanceof HTMLInputElement
+      if ((event.key === 'Backspace' || event.key === 'Delete') && target instanceof HTMLInputElement
         && target.type === 'checkbox' && !target.disabled) {
         event.preventDefault(); event.stopPropagation();
         previous(target);
@@ -555,7 +658,7 @@ const CustomerForm = () => {
     window.addEventListener('keydown', handler, true);
     return () => {
       window.removeEventListener('keydown', handler, true);
-      if (checkboxEnterRef.current.timer) clearTimeout(checkboxEnterRef.current.timer);
+      whatsappEnterRef.current = { element: null, count: 0 };
     };
   }, [form.PriceCodeType, form.whatsapp_same]);
 
@@ -626,6 +729,7 @@ const CustomerForm = () => {
         savedCustomer = await customerService.createCustomer(payload);
         toast.success('Saved Successfully', 'Customer saved successfully.');
       }
+      try { sessionStorage.removeItem(customerDraftKey); } catch { /* ignore storage failures */ }
       if (returnToSales) {
         goBackAfterCustomerEntry(savedCustomer);
       } else {
@@ -642,12 +746,76 @@ const CustomerForm = () => {
     } finally { saveInFlightRef.current = false; setSaving(false); }
   };
 
-  if (loading) return <Layout><LoadingSpinner message="Loading customer…"/></Layout>;
   const isReadOnly = isEdit && !isAdmin;
   const inp = (name) => ({ ...CI, borderColor: errors[name] ? 'var(--danger)' : undefined });
+  const validateMobileStep = step => {
+    const all = validate();
+    const keys = step === 1 ? ['CustomerName','EmailId','PhoneNumber','WhatsappNumber'] : step === 2 ? ['PinCode'] : Object.keys(all);
+    const stepErrors = Object.fromEntries(keys.filter(key => all[key]).map(key => [key, all[key]]));
+    if (Object.keys(stepErrors).length) {
+      setErrors(current => ({ ...current, ...stepErrors }));
+      requestAnimationFrame(() => customerFormRef.current?.querySelector('[aria-invalid="true"], .is-invalid')?.focus());
+      return false;
+    }
+    return true;
+  };
+  const mobileForm = (
+    <form ref={customerFormRef} data-customer-form="true" className="customer-form-page customer-mobile-step-form" onSubmit={e => { e.preventDefault(); e.stopPropagation(); }} noValidate>
+      <div className="customer-step-tabs" role="tablist">
+        {[['Customer',1],['Address',2],['GST & Price',3]].map(([label, step]) => <button key={step} type="button" role="tab" aria-selected={activeStep===step} className={`customer-step-tab${activeStep===step?' active':''}`} onClick={() => setActiveStep(step)}>{step}. {label}</button>)}
+      </div>
+      {activeStep === 1 && <div className="customer-step-content">
+        <div className="customer-mobile-section-title">Customer Information</div>
+        <div className="customer-two-column-row"><F label="Customer Code"><input type="text" className="form-control" value={custCode||'â€¦'} readOnly tabIndex={-1} style={{...CI,background:'var(--bg-soft)',fontFamily:'ui-monospace,monospace'}}/></F><F label="Customer Name" required error={errors.CustomerName}><input name="CustomerName" data-nav-order="1" className={`form-control${errors.CustomerName?' is-invalid':''}`} value={form.CustomerName} onChange={change} disabled={isReadOnly} style={inp('CustomerName')} placeholder="Enter name" aria-invalid={Boolean(errors.CustomerName)}/></F></div>
+        <F label="Email" opt error={errors.EmailId}><input name="EmailId" data-nav-order="2" type="email" className={`form-control${errors.EmailId?' is-invalid':''}`} value={form.EmailId} onChange={change} disabled={isReadOnly} style={inp('EmailId')} placeholder="Enter email address"/></F>
+        <div className="customer-two-column-row"><F label="Phone Number" opt error={errors.PhoneNumber}><input name="PhoneNumber" data-nav-order="3" type="tel" inputMode="numeric" maxLength={10} className={`form-control${errors.PhoneNumber?' is-invalid':''}`} value={form.PhoneNumber} onChange={change} disabled={isReadOnly} style={inp('PhoneNumber')} placeholder="Enter phone"/></F><F label="WhatsApp Number" opt error={errors.WhatsappNumber}><input name="WhatsappNumber" data-nav-order="5" type="tel" inputMode="numeric" maxLength={10} className={`form-control${errors.WhatsappNumber?' is-invalid':''}`} value={form.WhatsappNumber} onChange={change} readOnly={form.whatsapp_same} disabled={isReadOnly} style={inp('WhatsappNumber')} placeholder="Enter WhatsApp"/></F></div>
+        {!isReadOnly && <CBx name="whatsapp_same" className="same-as-phone-row" checked={form.whatsapp_same} navOrder="4" onChange={e=>change({target:{name:'whatsapp_same',type:'checkbox',checked:e.target.checked}})} onFocus={e=>{whatsappEnterRef.current={element:e.currentTarget,count:0};}} onBlur={()=>{whatsappEnterRef.current={element:null,count:0};}} onClick={e=>{whatsappEnterRef.current={element:e.currentTarget,count:0};}} label="Same as Phone"/>}
+        <div className="customer-step-actions customer-step-next"><button type="button" className="btn btn-primary" onClick={() => validateMobileStep(1) && setActiveStep(2)}>Next →</button></div>
+      </div>}
+      {activeStep === 2 && <div className="customer-step-content"><div className="customer-mobile-section-title">Address</div><F label="Address" opt error={errors.Address}><input name="Address" data-nav-order="6" className="form-control" value={form.Address} onChange={change} disabled={isReadOnly} style={inp('Address')} placeholder="Door No / Street / Area"/></F><div className="customer-two-column-row"><F label="District" opt error={errors.District}><SearchableDropdown value={form.District} onChange={handleDistrictChange} options={ALL_DISTRICT_NAMES} placeholder="Select district" disabled={isReadOnly} error={errors.District} navOrder="7" name="District"/></F><F label="State" opt error={errors.State}><SearchableDropdown value={form.State} onChange={handleStateChange} options={INDIA_STATES} placeholder="Select state" disabled={isReadOnly} error={errors.State} navOrder="8" name="State"/></F></div><div className="customer-two-column-row"><F label="Country" opt><input name="Country" className="form-control" value={form.Country} readOnly style={{...CI,background:'var(--bg-soft)'}}/></F><F label="Pincode" opt error={errors.PinCode}><input name="PinCode" data-nav-order="10" inputMode="numeric" maxLength={6} className={`form-control${errors.PinCode?' is-invalid':''}`} value={form.PinCode} onChange={change} disabled={isReadOnly} style={inp('PinCode')} placeholder="Enter pincode"/></F></div><div className="customer-step-actions"><button type="button" className="btn btn-outline-secondary" onClick={() => setActiveStep(1)}>← Previous</button><button type="button" className="btn btn-primary" onClick={() => validateMobileStep(2) && setActiveStep(3)}>Next →</button></div></div>}
+      {activeStep === 3 && <div className="customer-step-content"><div className="customer-mobile-section-title">GST &amp; Price</div><div className="customer-two-column-row"><label className="customer-mobile-toggle-field"><span>GST Customer</span><input type="checkbox" name="IsGSTCustomer" checked={form.IsGSTCustomer} onChange={change} disabled={isReadOnly}/></label>{form.IsGSTCustomer ? <F label="GST Number" required error={errors.GSTNo}><input name="GSTNo" data-nav-order="12" className={`form-control${errors.GSTNo?' is-invalid':''}`} value={form.GSTNo} onChange={change} disabled={isReadOnly} style={inp('GSTNo')} placeholder="Enter GST number"/></F> : <div/>}</div><F label="Price Type" required error={errors.PriceCodeType}><div className="customer-mobile-price-types">{['Random','Fixed'].map(pt=><label key={pt}><input type="radio" name="PriceCodeType" value={pt} checked={form.PriceCodeType===pt} onChange={change} disabled={isReadOnly}/>{pt}</label>)}</div></F>{form.PriceCodeType==='Fixed' && <F label="Fixed Price Code" required error={errors.FixedPriceCodeID}><div className="customer-mobile-fixed-options">{priceCodes.map(pc=><label key={pc.id}><input type="radio" name="FixedPriceCodeID" value={pc.id} checked={String(form.FixedPriceCodeID)===String(pc.id)} onChange={change} disabled={isReadOnly}/>{pc.DisplayLabel}</label>)}</div></F>}<div className="customer-form-actions"><div className="customer-primary-action-row"><button type="button" data-save-action="true" className="btn btn-primary save-customer-button" onClick={submit} disabled={saving||isReadOnly}>{saving?<><Spin/> Saving…</>:(isEdit?'Update Customer':'Save Customer')}</button></div><div className="customer-secondary-action-row">{!isReadOnly && <button type="button" className="btn btn-outline-secondary reset-customer-button" onClick={requestReset} disabled={saving}>Reset</button>}<button type="button" className="btn btn-outline-secondary cancel-customer-button" onClick={() => goBackAfterCustomerEntry()} disabled={saving}>Cancel</button></div></div></div>}
+    </form>
+  );
+  const compactMobileForm = (
+    <>
+      <div className="customer-title-status-row">
+        <h2>{isEdit ? (isAdmin ? 'Edit Customer Details' : 'View Customer Details') : 'Add Customer Details'}</h2>
+        <div className="professional-title-status"><span>STATUS</span><Toggle value={form.IsActive} onChange={v => setForm(p=>({...p,IsActive:v}))} disabled={isReadOnly}/></div>
+      </div>
+      <form ref={customerFormRef} data-customer-form="true" className="customer-form-page customer-compact-form" onSubmit={e => { e.preventDefault(); e.stopPropagation(); }} noValidate>
+        <div className="customer-code-display">Customer Code: <strong>{custCode || 'â€¦'}</strong></div>
+        <div className="customer-mobile-section-title">Customer Information</div>
+        <F label="Customer Name" required error={errors.CustomerName}><input name="CustomerName" data-nav-order="1" className={`form-control${errors.CustomerName?' is-invalid':''}`} value={form.CustomerName} onChange={change} disabled={isReadOnly} style={inp('CustomerName')} placeholder="Enter full customer name"/></F>
+        <F label="Phone Number" opt error={errors.PhoneNumber}><input name="PhoneNumber" data-nav-order="3" type="tel" inputMode="numeric" maxLength={10} className={`form-control${errors.PhoneNumber?' is-invalid':''}`} value={form.PhoneNumber} onChange={change} disabled={isReadOnly} style={inp('PhoneNumber')} placeholder="Enter phone number"/></F>
+        {!isReadOnly && <CBx name="whatsapp_same" className="same-as-phone-row" checked={form.whatsapp_same} navOrder="4" onChange={e=>change({target:{name:'whatsapp_same',type:'checkbox',checked:e.target.checked}})} onFocus={e=>{whatsappEnterRef.current={element:e.currentTarget,count:0};}} onBlur={()=>{whatsappEnterRef.current={element:null,count:0};}} onClick={e=>{whatsappEnterRef.current={element:e.currentTarget,count:0};}} label="Same as Phone"/>}
+        <F label="WhatsApp Number" opt error={errors.WhatsappNumber}><input name="WhatsappNumber" data-nav-order="5" type="tel" inputMode="numeric" maxLength={10} className={`form-control${errors.WhatsappNumber?' is-invalid':''}`} value={form.WhatsappNumber} onChange={change} readOnly={form.whatsapp_same} disabled={isReadOnly} style={inp('WhatsappNumber')} placeholder="Enter WhatsApp number"/></F>
+        <F label="Email" opt error={errors.EmailId}><input name="EmailId" data-nav-order="2" type="email" className={`form-control${errors.EmailId?' is-invalid':''}`} value={form.EmailId} onChange={change} disabled={isReadOnly} style={inp('EmailId')} placeholder="Enter email address"/></F>
+
+        <div className="customer-accordion-header"><span className="customer-accordion-title">Address Information</span><button type="button" className="customer-accordion-button" aria-expanded={addressOpen} onClick={() => setAddressOpen(open=>!open)}>{addressOpen?'\u2212':'+'}</button></div>
+        {addressOpen && <div className="customer-accordion-content"><F label="Address" opt error={errors.Address}><input name="Address" data-nav-order="6" className="form-control" value={form.Address} onChange={change} disabled={isReadOnly} style={inp('Address')} placeholder="Door No / Street / Area"/></F><div className="customer-two-column-row"><F label="District" opt error={errors.District}><SearchableDropdown value={form.District} onChange={handleDistrictChange} options={ALL_DISTRICT_NAMES} placeholder="Select district" disabled={isReadOnly} error={errors.District} navOrder="7" name="District"/></F><F label="State" opt error={errors.State}><SearchableDropdown value={form.State} onChange={handleStateChange} options={INDIA_STATES} placeholder="Select state" disabled={isReadOnly} error={errors.State} navOrder="8" name="State"/></F></div><div className="customer-two-column-row"><F label="Country" opt><input name="Country" className="form-control" value={form.Country} readOnly style={{...CI,background:'var(--bg-soft)'}}/></F><F label="Pincode" opt error={errors.PinCode}><input name="PinCode" data-nav-order="10" inputMode="numeric" maxLength={6} className={`form-control${errors.PinCode?' is-invalid':''}`} value={form.PinCode} onChange={change} disabled={isReadOnly} style={inp('PinCode')} placeholder="Enter pincode"/></F></div></div>}
+
+        <div className="customer-accordion-header"><span className="customer-accordion-title">GST &amp; Price Information</span><button type="button" className="customer-accordion-button" aria-expanded={gstPricingOpen} onClick={() => setGstPricingOpen(open=>!open)}>{gstPricingOpen?'\u2212':'+'}</button></div>
+        {gstPricingOpen && <div className="customer-accordion-content"><div className="customer-two-column-row"><label className="customer-mobile-toggle-field gst-customer-control"><input type="checkbox" className="customer-small-checkbox" name="IsGSTCustomer" checked={form.IsGSTCustomer} onChange={change} disabled={isReadOnly}/><span>GST Customer</span></label>{form.IsGSTCustomer ? <F label="GST Number" required error={errors.GSTNo}><input name="GSTNo" data-nav-order="12" className={`form-control${errors.GSTNo?' is-invalid':''}`} value={form.GSTNo} onChange={change} disabled={isReadOnly} style={inp('GSTNo')} placeholder="Enter GST number"/></F> : <div/>}</div><F label="Price Type" required error={errors.PriceCodeType}><div className="customer-mobile-price-types customer-radio-group">{['Random','Fixed'].map(pt=><label key={pt} className="customer-radio-option"><input type="radio" name="PriceCodeType" value={pt} checked={form.PriceCodeType===pt} onChange={change} disabled={isReadOnly}/><span>{pt}</span></label>)}</div></F>{form.PriceCodeType==='Fixed' && <F label="Fixed Price Code" required error={errors.FixedPriceCodeID}><div className="customer-mobile-fixed-options fixed-price-code-options">{priceCodes.map(pc=><label key={pc.id} className="fixed-price-code-option"><input type="radio" name="FixedPriceCodeID" value={pc.id} checked={String(form.FixedPriceCodeID)===String(pc.id)} onChange={change} disabled={isReadOnly}/><span>{pc.DisplayLabel}</span></label>)}</div></F>}</div>}
+
+        <div className="customer-mobile-actions"><div className="customer-save-row"><button type="button" data-save-action="true" className="btn btn-primary customer-save-button" onClick={submit} disabled={saving||isReadOnly}>{saving?<><Spin/> Savingâ€¦</>:(isEdit?'Update Customer':'Save Customer')}</button></div><div className="customer-reset-cancel-row">{!isReadOnly && <button type="button" className="btn btn-outline-secondary customer-reset-button" onClick={requestReset} disabled={saving}>Reset</button>}<button type="button" className="btn btn-outline-secondary customer-cancel-button" onClick={() => goBackAfterCustomerEntry()} disabled={saving}>Cancel</button></div></div>
+      </form>
+    </>
+  );
+  if (loading) return <Layout><LoadingSpinner message="Loading customer…"/></Layout>;
 
   return (
     <Layout>
+      {resetConfirmOpen && (
+        <div data-customer-reset-confirm="true" style={{position:'fixed',inset:0,zIndex:99600,background:'rgba(0,0,0,.4)',display:'flex',alignItems:'center',justifyContent:'center',padding:'1rem'}}>
+          <div role="dialog" aria-modal="true" style={{width:'min(360px,94vw)',padding:'1rem',background:'var(--card-bg)',borderRadius:10,boxShadow:'0 12px 36px rgba(0,0,0,.22)'}}>
+            <div style={{fontWeight:800,color:'var(--text-primary)',fontSize:'.9rem',marginBottom:'.8rem'}}>{isEdit ? 'Clear all unsaved customer changes?' : 'Clear all entered customer details?'}</div>
+            <div style={{display:'flex',justifyContent:'flex-end',gap:'.5rem'}}>
+              <button type="button" className="btn btn-outline-secondary btn-sm" onClick={() => setResetConfirmOpen(false)}>No</button>
+              <button type="button" className="btn btn-primary btn-sm" onClick={performReset}>Yes, Reset</button>
+            </div>
+          </div>
+        </div>
+      )}
       {showPriceRef && <PriceRefPanel priceCodes={priceCodes} onClose={()=>{
         setShowPriceRef(false);
         requestAnimationFrame(() => {
@@ -660,10 +828,11 @@ const CustomerForm = () => {
           else priceViewRef.current?.focus();
         });
       }}/>}
+      {isMobile ? compactMobileForm : <>
       <div className="page-header customer-page-header professional-form-title-card animate-in">
         <div>
           <h2 style={{fontFamily:'var(--font-heading)',fontWeight:800}}>
-            {isEdit?(isAdmin?'Edit Customer Details':'View Customer Details'):'Add Customer Details'}
+            {isEdit?(isAdmin?'Edit Customer Details':'View Customer Details'):'Add Customer'}
           </h2>
           <p className="page-header-sub">
             {isEdit?(isAdmin?'Update customer details':'Viewing customer (read-only)'):'Register a new customer'}
@@ -683,7 +852,7 @@ const CustomerForm = () => {
               marginBottom:'1rem',paddingBottom:'.75rem',borderBottom:'1px solid var(--divider)'}}>
               <div className="customer-status-control" style={{display:'flex',alignItems:'center',gap:'.5rem'}}>
                 <UserIcon/>
-                <span style={{fontWeight:800,fontSize:'.9rem',color:'var(--text-primary)',fontFamily:'var(--font-heading)'}}>Customer Information</span>
+                <span style={{fontWeight:800,fontSize:'.9rem',color:'var(--text-primary)',fontFamily:'var(--font-heading)'}}>Customer Details</span>
               </div>
             </div>
 
@@ -729,7 +898,12 @@ const CustomerForm = () => {
                   fontWeight:700,fontSize:'.72rem',color:'var(--text-label)',marginBottom:'.2rem'}}>
                   <span>WhatsApp <span style={{color:'var(--text-muted)',fontWeight:400,fontSize:'.70rem'}}>(optional)</span></span>
                 </label>
-                {!isReadOnly && <CBx name="whatsapp_same" checked={form.whatsapp_same} navOrder="4" onChange={e=>change({target:{name:'whatsapp_same',type:'checkbox',checked:e.target.checked}})} disabled={isReadOnly} label="Same as Phone"/>}
+                {!isReadOnly && <CBx name="whatsapp_same" checked={form.whatsapp_same} navOrder="4"
+                  onChange={e=>change({target:{name:'whatsapp_same',type:'checkbox',checked:e.target.checked}})}
+                  onFocus={e=>{ whatsappEnterRef.current = { element:e.currentTarget, count:0 }; }}
+                  onBlur={()=>{ whatsappEnterRef.current = { element:null, count:0 }; }}
+                  onClick={e=>{ whatsappEnterRef.current = { element:e.currentTarget, count:0 }; }}
+                  disabled={isReadOnly} label="Same as Phone"/>}
                 <input name="WhatsappNumber" data-nav-order="5" type="tel" inputMode="numeric" maxLength={10}
                   className={`form-control${errors.WhatsappNumber?' is-invalid':''}`}
                   placeholder="10-digit mobile"
@@ -751,7 +925,7 @@ const CustomerForm = () => {
             <div className="professional-section-title" style={{marginBottom:'.5rem',marginTop:'.75rem',fontSize:'.62rem',fontWeight:800,
               textTransform:'uppercase',letterSpacing:'.09em',color:'var(--primary)',
               paddingBottom:'.3rem',borderBottom:'1px solid var(--divider)'}}>Location</div>
-            <div className="customer-form-grid" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'.75rem',marginBottom:'.65rem',marginTop:'.65rem'}}>
+            <div className="customer-form-grid customer-two-column-row" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'.75rem',marginBottom:'.65rem',marginTop:'.65rem'}}>
               <F label="District" opt error={errors.District}>
                   <SearchableDropdown value={form.District} onChange={handleDistrictChange}
                   options={ALL_DISTRICT_NAMES} placeholder="Search district…" disabled={isReadOnly} error={errors.District} navOrder="7" name="District"/>
@@ -761,7 +935,7 @@ const CustomerForm = () => {
                   options={INDIA_STATES} placeholder="Search state…" disabled={isReadOnly} error={errors.State} navOrder="8" name="State"/>
               </F>
             </div>
-            <div className="customer-form-grid" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'.75rem',marginBottom:'.65rem'}}>
+            <div className="customer-form-grid customer-two-column-row" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'.75rem',marginBottom:'.65rem'}}>
               <F label="Country" opt>
                 <input name="Country" data-nav-order="9" type="text" className="form-control" value={form.Country} readOnly
                   style={{...CI,background:'var(--bg-soft)',color:'var(--text-primary)',cursor:'not-allowed',fontWeight:600}}/>
@@ -777,9 +951,11 @@ const CustomerForm = () => {
             </div>
 
             {/* GST & Pricing */}
-            <div className="professional-section-title" style={{marginBottom:'.5rem',marginTop:'.75rem',fontSize:'.62rem',fontWeight:800,
-              textTransform:'uppercase',letterSpacing:'.09em',color:'var(--primary)',
-              paddingBottom:'.3rem',borderBottom:'1px solid var(--divider)'}}>GST & Pricing</div>
+            <div className="customer-gst-section-header">
+              <span>GST &amp; Price Configuration</span>
+            
+            </div>
+            {gstPricingOpen && <div className="customer-gst-pricing-body">
 
             <div className="customer-form-grid customer-gst-pricing-grid" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'.75rem',marginTop:'.65rem',marginBottom:'.65rem',alignItems:'start'}}>
 
@@ -864,6 +1040,7 @@ const CustomerForm = () => {
                 )}
               </div>
             </div>
+            </div>}
 
             {/* Audit Info */}
             {isEdit && createdInfo && (
@@ -876,8 +1053,9 @@ const CustomerForm = () => {
           </div>
         </div>
 
-        <div className="form-actions-bar customer-form-actions animate-in">
-          <button type="button" className="btn btn-outline-secondary" onClick={() => goBackAfterCustomerEntry()} disabled={saving}>Cancel</button>
+        <div className="customer-form-actions animate-in">
+          {!isReadOnly && <button type="button" className="btn btn-outline-secondary reset-customer-button" onClick={requestReset} disabled={saving}>Reset</button>}
+          <button type="button" className="btn btn-outline-secondary cancel-customer-button" onClick={() => goBackAfterCustomerEntry()} disabled={saving}>Cancel</button>
           {!isReadOnly && (
             <button type="button" data-save-action="true" className="btn btn-primary" onClick={submit} disabled={saving}>
               {saving?<><Spin/> Saving…</>:(isEdit?'Update Customer':'Save Customer')}
@@ -885,6 +1063,7 @@ const CustomerForm = () => {
           )}
         </div>
       </form>
+      </>}
     </Layout>
   );
 };
