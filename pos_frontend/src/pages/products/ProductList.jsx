@@ -1116,7 +1116,7 @@ const ProductList = () => {
           </div>
         </div>
         {viewMore && <ProductDetailsDrawer product={viewMore} onClose={() => setViewMore(null)} returnFocusRef={mobileProductViewRef}/>}
-      </div>
+       </div>
       <ConfirmModal
         show={showDel}
         title="Delete Product"
