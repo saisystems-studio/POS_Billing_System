@@ -266,6 +266,8 @@ const CustomerForm = () => {
   const { isGSTRegistered: companyGST } = useCompany();  // live from CompanyContext
   const isEdit      = id !== undefined && id !== 'new';
   const toast       = useToast();
+  const isDesktopForm = typeof window !== 'undefined'
+    && window.matchMedia('(min-width: 1024px)').matches;
 
   const [loading,      setLoading]      = useState(false);
   const [saving,       setSaving]       = useState(false);
@@ -277,7 +279,7 @@ const CustomerForm = () => {
   const [createdInfo,  setCreatedInfo]  = useState(null);
   const [priceCodes,   setPriceCodes]   = useState([]);
   const [showPriceRef, setShowPriceRef] = useState(false);
-  const [gstPricingOpen, setGstPricingOpen] = useState(false);
+  const [gstPricingOpen, setGstPricingOpen] = useState(isDesktopForm);
   const [addressOpen, setAddressOpen] = useState(false);
   const [activeStep, setActiveStep] = useState(1);
   const [isCustomerDraftReady, setIsCustomerDraftReady] = useState(false);
@@ -312,7 +314,7 @@ const CustomerForm = () => {
     const draft = readCustomerDraft();
     if (draft?.form) {
       setForm(current => ({ ...current, ...draft.form }));
-      setGstPricingOpen(Boolean(draft.gstPricingOpen));
+      setGstPricingOpen(isDesktopForm || Boolean(draft.gstPricingOpen));
       setAddressOpen(Boolean(draft.addressOpen));
       setActiveStep(Number(draft.activeStep) || 1);
     }
@@ -325,13 +327,13 @@ const CustomerForm = () => {
     const draft = readCustomerDraft();
     if (draft?.form) {
       setForm(current => ({ ...current, ...draft.form }));
-      setGstPricingOpen(Boolean(draft.gstPricingOpen));
+      setGstPricingOpen(isDesktopForm || Boolean(draft.gstPricingOpen));
       setAddressOpen(Boolean(draft.addressOpen));
       setActiveStep(Number(draft.activeStep) || 1);
     } else {
       const original = originalFormRef.current;
       setAddressOpen(Boolean(original.Address || original.District || original.State || original.PinCode));
-      setGstPricingOpen(Boolean(original.IsGSTCustomer || original.GSTNo || original.PriceCodeType === 'Fixed' || original.FixedPriceCodeID));
+      setGstPricingOpen(isDesktopForm || Boolean(original.IsGSTCustomer || original.GSTNo || original.PriceCodeType === 'Fixed' || original.FixedPriceCodeID));
     }
     setIsCustomerDraftReady(true);
   }, [isEdit, readCustomerDraft, originalFormRef.current]);
@@ -455,7 +457,7 @@ const CustomerForm = () => {
     setApiError('');
     setActiveStep(1);
     setAddressOpen(Boolean(isEdit && resetTarget.Address));
-    setGstPricingOpen(Boolean(isEdit && (target.IsGSTCustomer || target.GSTNo || target.PriceCodeType === 'Fixed' || target.FixedPriceCodeID)));
+    setGstPricingOpen(isDesktopForm || Boolean(isEdit && (target.IsGSTCustomer || target.GSTNo || target.PriceCodeType === 'Fixed' || target.FixedPriceCodeID)));
     setResetConfirmOpen(false);
     try { sessionStorage.removeItem(customerDraftKey); } catch { /* ignore storage failures */ }
     requestAnimationFrame(() => customerFormRef.current?.querySelector('input[name="CustomerName"]')?.focus());

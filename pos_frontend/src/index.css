@@ -27362,7 +27362,7 @@ html body .content-inner:has(.billing-form-page) .sales-compact-topbar > .sales-
 .content-inner:has(.billing-form-page) .sales-compact-topbar > .sales-autofit-button { grid-area: autofit !important; display: inline-flex !important; align-items: center !important; justify-content: center !important; flex: 0 0 34px !important; width: 34px !important; min-width: 34px !important; max-width: 34px !important; height: 34px !important; min-height: 34px !important; max-height: 34px !important; padding: 0 !important; margin: 0 !important; box-sizing: border-box !important; }
 
 /* Final desktop authority for Customer Form; mobile rules remain untouched. */
-@media (min-width: 769px) {
+@media (min-width: 1024px) {
   .content-inner:has(.customer-form-page) .professional-customer-form-card,
   .content-inner:has(.customer-form-page) .professional-customer-form-card > .card-body {
     width: 100% !important;
