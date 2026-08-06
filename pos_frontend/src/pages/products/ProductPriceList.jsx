@@ -30,6 +30,9 @@ const ImportSpin = () => (
     <path d="M6 3h12M6 21h12M8 3c0 4 2.5 5.5 4 7 1.5-1.5 4-3 4-7M8 21c0-4 2.5-5.5 4-7 1.5 1.5 4 3 4 7"/>
   </svg>
 );
+const mobilePriceInteractiveTarget = target => Boolean(target?.closest?.(
+  'button, input, select, textarea, a, [data-row-action]'
+));
 
 const ProductPriceList = () => {
   const autoFitTableRef = useRef(null);
@@ -58,6 +61,8 @@ const ProductPriceList = () => {
   const [error,      setError]      = useState('');
   const [lastLoadFailed, setLastLoadFailed] = useState(false);
   const [activeRowId, setActiveRowId] = useState(null);
+  const [mobileEditorProductId, setMobileEditorProductId] = useState(null);
+  const [mobilePriceDraft, setMobilePriceDraft] = useState(null);
   const fileInputRef = useRef(null);
   const fetchSeqRef = useRef(0);
   const importAbortRef = useRef(null);
@@ -67,11 +72,15 @@ const ProductPriceList = () => {
   const saveAllRef = useRef(null);
   const pageCacheRef = useRef(new Map());
   const pageRequestsRef = useRef(new Map());
+  const mobilePriceRowRefs = useRef(new Map());
+  const mobilePriceReturnFocusRef = useRef(null);
   const { pageSize, containerRef, rowRef, bottomRef } = useResponsivePageSize({
     defaultRowHeight: 36,
     mobileRowHeight: 36,
+    mobilePageSize: 6,
     reservedBottomSpace: 52,
   });
+  const previousPageSizeRef = useRef(pageSize);
 
   const persistPageCache = useCallback(() => {
     try {
@@ -102,10 +111,26 @@ const ProductPriceList = () => {
 
   useEffect(() => { setPage(1); }, [groupFilter]);
   useEffect(() => {
-    setPage(1);
-    setProducts([]);
-    setActiveRowId(null);
+    const previousSize = previousPageSizeRef.current;
+    if (previousSize !== pageSize) {
+      setPage(currentPage => Math.floor(((currentPage - 1) * previousSize) / pageSize) + 1);
+      previousPageSizeRef.current = pageSize;
+    }
   }, [pageSize]);
+
+  useEffect(() => {
+    if (!mobileEditorProductId) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const closeOnEscape = event => {
+      if (event.key === 'Escape') closeMobilePriceEditor();
+    };
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [mobileEditorProductId]);
 
   useEffect(() => {
     productGroupService.getGroupsDropdown()
@@ -126,7 +151,9 @@ const ProductPriceList = () => {
     prods.forEach(p => {
       init[p.id] = {};
       pcs.forEach(pc => {
-        const tier = (p.prices || []).find(t => t.PriceCodeID === pc.id);
+        const tier = (p.prices || []).find(t =>
+          String(t.PriceCodeID?.id ?? t.PriceCodeID) === String(pc.id)
+        );
         init[p.id][pc.id] = tier ? String(tier.ProductPrice) : '';
       });
     });
@@ -229,6 +256,9 @@ const ProductPriceList = () => {
       pageCacheRef.current.clear();
       pageRequestsRef.current.clear();
       sessionStorage.removeItem(PRICE_CODE_CACHE_STORAGE_KEY);
+      if (!savingAllRef.current && !Object.values(dirtyRef.current).some(Boolean)) {
+        loadData({ force: true });
+      }
     };
     window.addEventListener('pos-auth-cleared', clearPriceCodeCache);
     window.addEventListener('pos-products-changed', clearPriceCodeCache);
@@ -236,7 +266,7 @@ const ProductPriceList = () => {
       window.removeEventListener('pos-auth-cleared', clearPriceCodeCache);
       window.removeEventListener('pos-products-changed', clearPriceCodeCache);
     };
-  }, []);
+  }, [loadData]);
 
   useEffect(() => { if (isAdmin) loadData(); }, [isAdmin, loadData]);
 
@@ -444,6 +474,7 @@ const ProductPriceList = () => {
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const pageRows = products;
+  const mobileEditorProduct = products.find(product => product.id === mobileEditorProductId);
   const showingStart = pageRows.length ? ((loadedPage - 1) * pageSize) + 1 : 0;
   const showingEnd = pageRows.length ? Math.min(((loadedPage - 1) * pageSize) + pageRows.length, total) : 0;
   useEffect(() => {
@@ -452,6 +483,37 @@ const ProductPriceList = () => {
   const isInteractiveTarget = (target) => Boolean(target?.closest?.(
     'input, select, textarea, button, a, [role="button"], .pagination'
   ));
+  const isTabletPriceView = () => typeof window !== 'undefined'
+    && window.matchMedia('(min-width: 768px) and (max-width: 1023px)').matches;
+  const closeMobilePriceEditor = () => {
+    setMobileEditorProductId(null);
+    setMobilePriceDraft(null);
+    requestAnimationFrame(() => mobilePriceReturnFocusRef.current?.focus?.());
+  };
+  const openMobilePriceEditor = (product, rowElement) => {
+    if (!product?.id) return;
+    mobilePriceReturnFocusRef.current = rowElement;
+    setMobilePriceDraft({ ...(rows[product.id] || {}) });
+    setMobileEditorProductId(product.id);
+  };
+  const openMobilePriceFromRow = (event, product) => {
+    if (mobilePriceInteractiveTarget(event.target)) return;
+    event.preventDefault();
+    openMobilePriceEditor(product, event.currentTarget);
+  };
+  const handleMobilePriceDraftChange = (priceCodeId, value) => {
+    if (value !== '' && (!Number.isFinite(Number(value)) || Number(value) < 0)) return;
+    setMobilePriceDraft(previous => ({ ...(previous || {}), [priceCodeId]: value }));
+  };
+  const applyMobilePriceDraft = () => {
+    if (!mobileEditorProduct) return;
+    setRows(previous => ({
+      ...previous,
+      [mobileEditorProduct.id]: { ...(previous[mobileEditorProduct.id] || {}), ...(mobilePriceDraft || {}) },
+    }));
+    setDirty(previous => ({ ...previous, [mobileEditorProduct.id]: true }));
+    closeMobilePriceEditor();
+  };
   const openProductPage = useCallback((product) => {
     if (!product?.id || navigationLockRef.current) return;
     navigationLockRef.current = true;
@@ -508,13 +570,14 @@ const ProductPriceList = () => {
 
   return (
     <Layout>
-      <div className="price-code-list-page">
+      <div className="price-code-list-page price-code-mobile-page">
       <div className="page-header price-code-list-header animate-in" style={{marginBottom:'1rem'}}>
-        <div>
+        <div className="price-code-mobile-title">
           <h2 className="price-code-list-title" style={{fontFamily:'var(--font-heading)',fontWeight:800}}>Price Code List</h2>
+          <p className="price-code-mobile-subtitle price-code-list-subtitle">Manage product price codes</p>
           <p className="page-header-sub">Admin · Set five rates per product</p>
         </div>
-        <div className="d-flex gap-2 align-center list-header-actions price-code-toolbar price-code-list-toolbar">
+        <div className="d-flex gap-2 align-center list-header-actions price-code-toolbar price-code-list-toolbar price-code-mobile-toolbar">
           <SharedSearchField
             className="list-header-search price-code-search"
             placeholder="Search product name or code..."
@@ -526,12 +589,12 @@ const ProductPriceList = () => {
             <option value="">All Groups</option>
             {groups.map(g => <option key={g.id} value={g.id}>{g.GroupName}</option>)}
           </select>
-          <button className="btn btn-outline-secondary btn-sm" onClick={() => { if (!importing) fileInputRef.current?.click(); }} disabled={importing}>
+          <button className="btn btn-outline-secondary btn-sm price-code-import-button" onClick={() => { if (!importing) fileInputRef.current?.click(); }} disabled={importing}>
             {importing ? <ImportSpin/> : <UploadIcon/>}{importing ? 'Importing...' : 'Import'}
           </button>
-          <button className="btn btn-outline-secondary btn-sm" onClick={downloadImportTemplate}>Download Template</button>
-          <button className="btn btn-outline-secondary btn-sm" onClick={handleExportCsv}>Export</button>
-          <AutoFitColumns tableRef={autoFitTableRef}/>
+          <button className="btn btn-outline-secondary btn-sm price-code-template-button" onClick={downloadImportTemplate}>Download Template</button>
+          <button className="btn btn-outline-secondary btn-sm price-code-export-button" onClick={handleExportCsv}>Export</button>
+          <AutoFitColumns tableRef={autoFitTableRef} className="price-code-autofit-button autofit-button"/>
           <input ref={fileInputRef} type="file" accept=".xlsx" style={{display:'none'}} onChange={handleImportFile}/>
         </div>
       </div>
@@ -543,7 +606,7 @@ const ProductPriceList = () => {
         </div>
       )}
 
-      <div className="card animate-in animate-in-1 price-code-list-card">
+      <div className="card animate-in animate-in-1 price-code-list-card price-code-records-container">
         <div className="card-body">
           <div ref={containerRef} className="price-code-table-section price-code-table-area list-keyboard-zone" tabIndex={0} onKeyDown={handleListKeyDown}>
           <p className="price-scroll-hint">Swipe left or right to view Price A, B, C, D and Retail.</p>
@@ -593,7 +656,18 @@ const ProductPriceList = () => {
                         borderBottom: '1px solid #ede3d9',
                         transition: 'background .12s',
                       }}
-                      onClick={e => selectRow(e, p.id)}
+                      tabIndex={isTabletPriceView() ? 0 : undefined}
+                      aria-label={isTabletPriceView() ? `View prices for ${p.ProductName || 'product'}` : undefined}
+                      onClick={e => {
+                        if (isTabletPriceView()) {
+                          openMobilePriceFromRow(e, p);
+                          return;
+                        }
+                        selectRow(e, p.id);
+                      }}
+                      onKeyDown={e => {
+                        if (isTabletPriceView() && e.key === 'Enter') openMobilePriceFromRow(e, p);
+                      }}
                       onDoubleClick={e => openRow(e, p)}
                       onMouseEnter={e => {
                         e.currentTarget.closest('.list-keyboard-zone')?.focus();
@@ -606,7 +680,7 @@ const ProductPriceList = () => {
                         <div className="pc-product-name">{p.ProductName}</div>
                       </td>
                       {priceCodes.map(pc => (
-                        <td key={pc.id} className="pc-cell-price">
+                        <td key={pc.id} className="pc-cell-price" data-price-label={pc.DisplayLabel}>
                           <div className="pc-price-wrap">
                             <span style={{position:'absolute',left:8,fontSize:'.76rem',color:'#a07850',pointerEvents:'none',fontWeight:600}}>₹</span>
                             <input
@@ -635,6 +709,96 @@ const ProductPriceList = () => {
           </SplitTable>
           </div>
           </div>
+          <div className="price-code-records-section">
+          <div className="mobile-price-section-header">Product Prices</div>
+          <div className="mobile-price-record-list" aria-label="Product prices">
+            {pageRows.length === 0 ? (
+              <div className="mobile-price-empty">{search ? `No products matching "${search}"` : 'No active products.'}</div>
+            ) : pageRows.map(p => {
+              const codeCount = priceCodes.length;
+              return (
+                <article className="mobile-price-record-row" key={p.id}
+                  data-product-id={p.id}
+                  tabIndex={0}
+                  aria-label={`View prices for ${p.ProductName || 'product'}`}
+                  ref={node => {
+                    if (node) mobilePriceRowRefs.current.set(p.id, node);
+                    else mobilePriceRowRefs.current.delete(p.id);
+                  }}
+                  onClick={event => openMobilePriceFromRow(event, p)}
+                  onKeyDown={event => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault();
+                      openMobilePriceEditor(p, event.currentTarget);
+                    }
+                  }}>
+                  <div className="mobile-price-record-content">
+                    <span className="mobile-price-record-title">{p.ProductName || '—'}</span>
+                    <span className="mobile-price-record-meta">{p.ProductCode || '—'} · {codeCount} price code{codeCount === 1 ? '' : 's'}</span>
+                  </div>
+                  <button type="button" className="mobile-price-open-button"
+                    aria-label={`Edit prices for ${p.ProductName || 'product'}`}
+                    title="Edit prices"
+                    onClick={event => {
+                      event.stopPropagation();
+                      openMobilePriceEditor(p, event.currentTarget.closest('.mobile-price-record-row'));
+                    }}>
+                    Prices
+                  </button>
+                </article>
+              );
+            })}
+          </div>
+          </div>
+          <div className="price-code-mobile-footer price-code-footer">
+            <div className="product-record-info price-code-record-count">
+              {pageRows.length
+                ? `Showing ${showingStart}-${showingEnd} of ${total} records`
+                : `Showing 0 of ${total} records`}
+            </div>
+            <div className="price-code-save-row">
+              <button onClick={saveAll} disabled={savingAll} className="btn btn-primary price-code-save-all-button">
+                {savingAll ? <><Spin/> Saving...</> : 'Save All'}
+              </button>
+            </div>
+            <div className="price-code-pagination">
+              <button className="pg-item" disabled={loadedPage === 1} onClick={() => setPage(Math.max(1, loadedPage - 1))}>Previous</button>
+              <span className="pg-item price-code-page-number">Page {loadedPage}</span>
+              <button className="pg-item" disabled={loadedPage === totalPages || total === 0} onClick={() => setPage(Math.min(totalPages, loadedPage + 1))}>Next</button>
+            </div>
+          </div>
+          {mobileEditorProduct && (
+            <>
+              <div className="mobile-price-editor-backdrop" onClick={closeMobilePriceEditor} aria-hidden="true" />
+              <section className="mobile-price-editor" role="dialog" aria-modal="true" aria-label="Edit product prices">
+                <div className="mobile-price-editor-header">
+                  <div>
+                    <strong>Edit Product Prices</strong>
+                    <span>{mobileEditorProduct.ProductName || '—'} · {mobileEditorProduct.ProductCode || '—'}</span>
+                  </div>
+                  <button type="button" className="mobile-price-editor-close" aria-label="Close price editor" title="Close"
+                    onClick={closeMobilePriceEditor}>×</button>
+                </div>
+                <div className="mobile-price-editor-body">
+                  {priceCodes.map(pc => (
+                    <label className="mobile-price-field" key={`${mobileEditorProduct.id}-${pc.id}`}>
+                      <span className="mobile-price-label">{pc.DisplayLabel || pc.Name || `Price ${pc.id}`}</span>
+                      <span className="mobile-price-input-wrap">
+                        <span aria-hidden="true">₹</span>
+                        <input className="mobile-price-input" type="number" min="0" step="0.01"
+                          value={mobilePriceDraft?.[pc.id] ?? ''}
+                          onChange={event => handleMobilePriceDraftChange(pc.id, event.target.value)} />
+                      </span>
+                    </label>
+                  ))}
+                </div>
+                <div className="mobile-price-editor-footer">
+                  <button type="button" className="btn btn-outline-secondary btn-sm" onClick={closeMobilePriceEditor}>Cancel</button>
+                  <button type="button" className="btn btn-primary btn-sm" onClick={applyMobilePriceDraft}>Apply Prices</button>
+                </div>
+              </section>
+            </>
+          )}
           <div ref={bottomRef} className="table-pagination-footer">
             <div className="product-record-info">
               {pageRows.length
@@ -653,7 +817,7 @@ const ProductPriceList = () => {
           </div>
         </div>
       </div>
-      <div className="form-actions-bar animate-in">
+      <div className="form-actions-bar animate-in price-code-desktop-actions">
         <button onClick={saveAll} disabled={savingAll} className="btn btn-primary">
           {savingAll?<><Spin/> Saving...</>:'Save All'}
         </button>

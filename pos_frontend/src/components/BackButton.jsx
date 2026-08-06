@@ -9,7 +9,7 @@ const ArrowLeft = () => (
   </svg>
 );
 
-const BackButton = () => {
+const BackButton = ({ compact = false }) => {
   const navigate = useNavigate();
   const { pathname } = useLocation();
 
@@ -20,14 +20,14 @@ const BackButton = () => {
     if (previous) navigate(previous);
   };
 
-  return (
-    <div className="page-back-row">
-      <button type="button" className="page-back-button" onClick={goBack}>
+  const button = (
+      <button type="button" className={`page-back-button${compact ? ' page-back-button-compact' : ''}`} onClick={goBack} aria-label="Go back">
         <ArrowLeft />
-        <span>Back</span>
+        {!compact && <span>Back</span>}
       </button>
-    </div>
   );
+
+  return compact ? button : <div className="page-back-row">{button}</div>;
 };
 
 export default BackButton;

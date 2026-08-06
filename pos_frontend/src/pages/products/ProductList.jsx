@@ -9,7 +9,7 @@ import productGroupService from '../../services/productGroupService';
 import { clearPageCache, fetchCachedPage, getCachedPage, makePageKey, prefetchCachedPage } from '../../services/pageCache';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
-import { Upload, Download, FileDown, FileSpreadsheet, FileText } from 'lucide-react';
+import { Upload, Download, FileDown, FileSpreadsheet, FileText, MoreVertical, Eye, Pencil, Trash2 } from 'lucide-react';
 import {
   formatBackendImportError as formatImportErrorMessage,
   getImportToast,
@@ -32,6 +32,11 @@ const ImportSpin = () => (
 );
 
 const BLANK = '\u2014';
+const displayValue = value => {
+  if (value == null) return BLANK;
+  const text = String(value).trim();
+  return !text || text === '--' || text === 'null' || text === 'undefined' ? BLANK : value;
+};
 const PRICE_CODE_PAGE_STORAGE_KEY = 'price-code-list-page';
 const PRICE_CODE_CACHE_STORAGE_KEY = 'price-code-list-cache-v1';
 const retailPrice = (p) => {
@@ -67,61 +72,93 @@ const productIsActive = p => {
 };
 
 const DetailRow = ({ label, value }) => (
-  <div className="product-drawer-row">
-    <span>{label}</span>
-    <strong>{value ?? '--'}</strong>
+  <div className="detail-item">
+    <span className="detail-label">{label}</span>
+    <span className="detail-value">{value ?? '—'}</span>
   </div>
 );
 
-const ProductDetailsDrawer = ({ product, onClose }) => {
+const ProductDetailsDrawer = ({ product, onClose, returnFocusRef }) => {
+  const close = () => {
+    onClose();
+    requestAnimationFrame(() => returnFocusRef?.current?.focus?.());
+  };
+  useEffect(() => {
+    const handleEscape = e => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        close();
+      }
+    };
+    document.addEventListener('keydown', handleEscape);
+    return () => document.removeEventListener('keydown', handleEscape);
+  });
   if (!product) return null;
+  const active = productIsActive(product);
+  const productNameValue = productName(product) || '—';
+  const groupValue = productGroup(product) || '—';
   return (
-    <aside className="product-details-drawer" aria-label="Product details">
-      <div className="product-drawer-titlebar">
-        <span>View More</span>
-        <button className="product-drawer-x" onClick={onClose} aria-label="Close details"><CloseIcon/></button>
-      </div>
-      <div className="product-drawer-header">
-        <div className="product-drawer-summary">
-          <div className="product-drawer-image">
+    <div className="details-modal-overlay" onClick={close}>
+      <section className="details-modal product-details-modal" role="dialog" aria-modal="true" aria-label="Product details" onClick={e => e.stopPropagation()}>
+        <header className="details-modal-header">
+          <h2>Product Details</h2>
+          <button className="details-modal-close" onClick={close} aria-label="Close details"><CloseIcon/></button>
+        </header>
+        <div className="details-modal-body">
+          <div className="details-summary-card">
+            <div className="details-summary-avatar">
             {product.Image || product.ProductImage
               ? <img src={product.Image || product.ProductImage} alt={product.ProductName || 'Product'} />
               : <span>{(product.ProductName || 'P').charAt(0).toUpperCase()}</span>}
+            </div>
+            <div className="details-summary-main">
+              <h3>{productNameValue}</h3>
+              <p>Code: {product.ProductCode || product.ProductCodeValue || product.Code || '—'}</p>
+              <p>Group: {groupValue}</p>
+            </div>
+            <span className={`summary-status ${active ? 'is-active' : 'is-inactive'}`}>{active ? 'Active' : 'Inactive'}</span>
           </div>
-          <div>
-            <h3>{product.ProductName || '--'}</h3>
-            <p>Group: {product.GroupName || '--'}</p>
-            <p>Qty in Hand: {product.Quantity ?? '--'}</p>
+          <div className="details-section">
+            <h3 className="details-section-title">Product Information</h3>
+            <div className="detail-grid">
+              <DetailRow label="Product Name" value={productNameValue} />
+              <DetailRow label="Tamil Name" value={product.ProductNameTamil || product.ProductName_Tamil || product.TamilName} />
+              <DetailRow label="Product Code" value={product.ProductCode || product.ProductCodeValue || product.Code} />
+              <DetailRow label="Product Group" value={groupValue} />
+              <DetailRow label="Unit" value={productUnit(product)} />
+              <DetailRow label="Quantity in Hand" value={productQty(product)} />
+              <DetailRow label="Status" value={active ? 'Active' : 'Inactive'} />
+            </div>
+          </div>
+          <div className="details-section">
+            <h3 className="details-section-title">Pricing &amp; Tax Information</h3>
+            <div className="detail-grid">
+              <DetailRow label="HSN Code" value={product.HSNCode || product.HSN} />
+              <DetailRow label="GST %" value={productGst(product)} />
+              <DetailRow label="Price A" value={priceByName(product, 'A')} />
+              <DetailRow label="Price B" value={priceByName(product, 'B')} />
+              <DetailRow label="Price C" value={priceByName(product, 'C')} />
+              <DetailRow label="Price D" value={priceByName(product, 'D')} />
+              <DetailRow label="Retail Price" value={priceByName(product, 'Retail')} />
+            </div>
+          </div>
+          <div className="details-section">
+            <h3 className="details-section-title">Inventory &amp; Additional Information</h3>
+            <div className="detail-grid">
+              <DetailRow label="Minimum Stock" value={product.MinimumStock ?? product.MinStock} />
+              <DetailRow label="Reorder Level" value={product.ReorderLevel} />
+              <DetailRow label="Barcode" value={product.Barcode} />
+              <DetailRow label="Brand" value={product.Brand} />
+              <DetailRow label="Shelf Life" value={product.ShelfLife} />
+              <DetailRow label="Created On" value={formatDate(product.CreatedOn)} />
+              <DetailRow label="Last Updated" value={formatDate(product.UpdatedOn || product.ModifiedOn || product.LastUpdated)} />
+              <div className="detail-item product-description-item"><span className="detail-label">Description</span><span className="detail-value">{product.Description || '—'}</span></div>
+            </div>
           </div>
         </div>
-      </div>
-      <div className="product-drawer-body">
-        <div className="product-drawer-section-title">Product Details</div>
-        <DetailRow label="Product Name" value={product.ProductName || '--'} />
-        <DetailRow label="Product Group" value={product.GroupName || '--'} />
-        <DetailRow label="Quantity in Hand" value={product.Quantity ?? '--'} />
-        <DetailRow label="Unit" value={product.UnitCode && product.UnitName ? `${product.UnitCode} - ${product.UnitName}` : (product.UnitCode || product.UnitName || product.Units || '--')} />
-        <DetailRow label="GST %" value={product.GSTPercent ?? '--'} />
-        <DetailRow label="Status" value={product.IsActive !== false ? 'Active' : 'Inactive'} />
-        <DetailRow label="HSN Code" value={product.HSNCode || '--'} />
-        <DetailRow label="Price A" value={priceByName(product, 'A')} />
-        <DetailRow label="Price B" value={priceByName(product, 'B')} />
-        <DetailRow label="Price C" value={priceByName(product, 'C')} />
-        <DetailRow label="Price D" value={priceByName(product, 'D')} />
-        <DetailRow label="Retail Price" value={priceByName(product, 'Retail')} />
-        <DetailRow label="Minimum Stock" value={product.MinimumStock ?? product.MinStock ?? '--'} />
-        <DetailRow label="Reorder Level" value={product.ReorderLevel ?? '--'} />
-        <DetailRow label="Barcode" value={product.Barcode || '--'} />
-        <DetailRow label="Brand" value={product.Brand || '--'} />
-        <DetailRow label="Shelf Life" value={product.ShelfLife || '--'} />
-        <DetailRow label="Created On" value={formatDate(product.CreatedOn)} />
-        <DetailRow label="Last Updated" value={formatDate(product.UpdatedOn || product.ModifiedOn || product.LastUpdated)} />
-        {product.Description && <DetailRow label="Description" value={product.Description} />}
-      </div>
-      <div className="product-drawer-footer">
-        <button className="btn btn-outline-secondary btn-sm" onClick={onClose}>Close</button>
-      </div>
-    </aside>
+        <footer className="details-modal-footer"><button className="btn btn-outline-secondary" onClick={close}>Close</button></footer>
+      </section>
+    </div>
   );
 };
 const ProductList = () => {
@@ -145,6 +182,7 @@ const ProductList = () => {
   const [deleting,    setDeleting]   = useState(false);
   const [selected,    setSelected]   = useState(new Set());
   const [viewMore,    setViewMore]   = useState(null);
+  const [mobileActionProductId, setMobileActionProductId] = useState(null);
   const [expandedId,  setExpandedId] = useState(null);
   const toggleExpanded = (id) => setExpandedId(prev => prev === id ? null : id);
   const [selectedProductId, setSelectedProductId] = useState(null);
@@ -156,6 +194,7 @@ const ProductList = () => {
   const dropMenuRef   = useRef(null);
   const fileInputRef  = useRef(null);
   const searchInputRef = useRef(null);
+  const mobileProductViewRef = useRef(null);
   const fetchSeqRef = useRef(0);
   const importAbortRef = useRef(null);
   const navigationLockRef = useRef(false);
@@ -164,6 +203,9 @@ const ProductList = () => {
     defaultRowHeight: 29,
     mobileRowHeight: 246,
   });
+  const previousPageSizeRef = useRef(pageSize);
+  const isTabletLayout = typeof window !== 'undefined'
+    && window.matchMedia('(min-width: 768px) and (max-width: 1199px)').matches;
 
   // Position portal dropdown under the Export button
   useLayoutEffect(() => {
@@ -236,9 +278,11 @@ const ProductList = () => {
 
   useEffect(() => { setPage(1); }, [groupFilter, statusFilter]);
   useEffect(() => {
-    setPage(1);
-    setProducts([]);
-    setSelectedProductId(null);
+    const previousSize = previousPageSizeRef.current;
+    if (previousSize !== pageSize) {
+      setPage(currentPage => Math.floor(((currentPage - 1) * previousSize) / pageSize) + 1);
+      previousPageSizeRef.current = pageSize;
+    }
   }, [pageSize]);
 
   const fetchProducts = useCallback(async (options = {}) => {
@@ -294,6 +338,25 @@ const ProductList = () => {
     }
   }, [products, selectedProductId]);
 
+  useEffect(() => {
+    if (!mobileActionProductId) return undefined;
+    const closeOnEscape = event => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setMobileActionProductId(null);
+      }
+    };
+    const closeOnOutsideClick = event => {
+      if (!event.target.closest?.('.mobile-product-actions')) setMobileActionProductId(null);
+    };
+    document.addEventListener('keydown', closeOnEscape);
+    document.addEventListener('pointerdown', closeOnOutsideClick);
+    return () => {
+      document.removeEventListener('keydown', closeOnEscape);
+      document.removeEventListener('pointerdown', closeOnOutsideClick);
+    };
+  }, [mobileActionProductId]);
+
   const openProductDetails = async (product) => {
     if (!product) return;
     setSelectedProductId(product.id);
@@ -339,10 +402,11 @@ const ProductList = () => {
     selectProduct(products[0].id);
   };
 
-  const handleRowClick = (event, productId) => {
+  const handleRowClick = (event, product) => {
     if (isInteractiveTarget(event.target)) return;
     event.currentTarget.closest('.product-table-zone')?.focus();
-    selectProduct(productId);
+    selectProduct(product.id);
+    openProductEditPage(product);
   };
 
   const handleRowDoubleClick = (event, product) => {
@@ -374,6 +438,7 @@ const ProductList = () => {
   };
 
   const handleDelete = async () => {
+    if (deleting) return;
     const ids = selected.size > 0 ? [...selected] : [delTarget];
     setDeleting(true);
     try {
@@ -685,52 +750,94 @@ const ProductList = () => {
 
   return (
     <Layout>
-      <div className="page-header price-code-list-header product-list-header product-list-page-header shared-list-toolbar animate-in">
-        <div className="list-title-block product-list-title-block">
-          <h2 className="price-code-list-title product-list-title" style={{fontFamily:'var(--font-heading)',fontWeight:800}}>Product List</h2>
-          <p className="page-header-sub product-list-subtitle">Admin · Manage products in catalog</p>
-        </div>
-        <div className="d-flex gap-2 align-center list-header-actions price-code-toolbar price-code-list-toolbar shared-list-toolbar-controls product-list-toolbar product-list-toolbar-controls">
+      <div className="page-header price-code-list-header product-list-header product-list-header-card product-list-tablet-toolbar product-list-page-header product-list-page shared-list-toolbar animate-in">
+        <div className="product-list-tablet-heading">Product List</div>
+        <div className="product-list-tablet-only-toolbar" aria-label="Product List tablet toolbar">
           <SharedSearchField
             ref={searchInputRef}
-            className="list-header-search price-code-search product-list-search"
-            placeholder="Search products..."
+            className="product-list-tablet-only-search"
+            placeholder="Search products"
             value={search}
             onChange={e => setSearch(e.target.value)}
           />
-          <select className="form-select form-select-sm product-list-filter product-group-filter" style={{width:'auto',minWidth:130}}
-            value={groupFilter} onChange={e => setGroupFilter(e.target.value)}>
+          <select className="form-select form-select-sm product-list-tablet-only-group" value={groupFilter} onChange={e => setGroupFilter(e.target.value)}>
             <option value="">All Groups</option>
             {groups.map(g => <option key={g.id} value={g.id}>{g.GroupName}</option>)}
           </select>
-          <select className="form-select form-select-sm product-list-filter product-status-filter" style={{width:'auto',minWidth:112}}
-            value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+          <select className="form-select form-select-sm product-list-tablet-only-status" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
             <option value="">All Status</option>
             <option value="true">Active</option>
             <option value="false">Inactive</option>
           </select>
-          {multiSelectActive && isAdmin && (
-            <button className="btn btn-danger btn-sm product-bulk-delete-action" onClick={() => setShowDel(true)}>
-              <TrashIcon/> Delete ({selected.size})
-            </button>
-          )}
-          <button className="btn btn-outline-secondary btn-sm product-list-action-button product-import-action" onClick={() => { if (!importing) fileInputRef.current?.click(); }} disabled={importing}>
-            {importing ? <ImportSpin/> : <Upload size={14}/>} {importing ? 'Importing...' : 'Import'}
-          </button>
-          <button className="btn btn-outline-secondary btn-sm product-list-action-button product-template-action" onClick={handleDownloadTemplate}>
-            <Download size={14}/> Download Template
-          </button>
-          <div className="product-list-export-action" style={{position:'relative'}}>
-            <button ref={exportBtnRef} className="btn btn-outline-secondary btn-sm product-list-action-button"
-              onMouseDown={e => e.stopPropagation()}
-              onClick={() => setShowDataMenu(v => !v)}>
-              <FileDown size={14}/> Export
-            </button>
-          </div>
-          <button className="btn btn-primary btn-sm product-list-action-button" onClick={() => navigate('/products/new')}>
+          <button className="btn btn-primary btn-sm product-list-tablet-only-add" onClick={() => navigate('/products/new')}>
             <PlusIcon/> Add Product
           </button>
-          <AutoFitColumns tableRef={autoFitTableRef} excelSelection className="product-list-auto-fit-button"/>
+          <button className="btn btn-outline-secondary btn-sm product-list-tablet-only-import" onClick={() => { if (!importing) fileInputRef.current?.click(); }} disabled={importing}>
+            {importing ? <ImportSpin/> : <Upload size={14}/>} {importing ? 'Importing...' : 'Import'}
+          </button>
+          <button ref={exportBtnRef} className="btn btn-outline-secondary btn-sm product-list-tablet-only-export" onClick={() => setShowDataMenu(v => !v)}>
+            <FileDown size={14}/> Export
+          </button>
+          <button className="btn btn-outline-secondary btn-sm product-list-tablet-only-template" onClick={handleDownloadTemplate}>
+            <Download size={14}/> Download Template
+          </button>
+          <AutoFitColumns tableRef={autoFitTableRef} excelSelection className="product-list-tablet-only-autofit"/>
+        </div>
+        <div className="list-title-block product-list-title-block product-list-tablet-title">
+          <h2 className="price-code-list-title product-list-title" style={{fontFamily:'var(--font-heading)',fontWeight:800}}>Product List</h2>
+          <p className="page-header-sub product-list-subtitle">Admin · Manage products in catalog</p>
+        </div>
+        <div className="d-flex gap-2 align-center list-header-actions price-code-toolbar price-code-list-toolbar shared-list-toolbar-controls product-list-toolbar product-list-toolbar-controls product-list-tablet-controls">
+          <div className="product-toolbar-top-row product-toolbar-fields product-list-tablet-top-row">
+            <div className="product-search-row product-list-tablet-search-row">
+              <SharedSearchField
+                ref={searchInputRef}
+                className="list-header-search price-code-search product-list-search product-list-search-wrapper"
+                placeholder="Search products..."
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+              />
+            </div>
+            <div className="product-filter-row product-list-tablet-filter-row">
+              <select className="form-select form-select-sm product-list-filter product-group-filter" style={{width:'auto',minWidth:130}}
+                value={groupFilter} onChange={e => setGroupFilter(e.target.value)}>
+                <option value="">All Groups</option>
+                {groups.map(g => <option key={g.id} value={g.id}>{g.GroupName}</option>)}
+              </select>
+              <select className="form-select form-select-sm product-list-filter product-status-filter" style={{width:'auto',minWidth:112}}
+                value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+                <option value="">All Status</option>
+                <option value="true">Active</option>
+                <option value="false">Inactive</option>
+              </select>
+            </div>
+          </div>
+          <div className="product-list-toolbar-actions product-list-tablet-actions">
+            <div className="product-list-toolbar-primary product-list-tablet-primary">
+              {multiSelectActive && isAdmin && (
+                <button className="btn btn-danger btn-sm product-bulk-delete-action" onClick={() => setShowDel(true)}>
+                  <TrashIcon/> Delete ({selected.size})
+                </button>
+              )}
+              <button className="btn btn-outline-secondary btn-sm product-list-action-button product-import-action product-import-button" onClick={() => { if (!importing) fileInputRef.current?.click(); }} disabled={importing}>
+                {importing ? <ImportSpin/> : <Upload size={14}/>} {importing ? 'Importing...' : 'Import'}
+              </button>
+              <button className="btn btn-outline-secondary btn-sm product-list-action-button product-template-action product-download-button" onClick={handleDownloadTemplate}>
+                <Download size={14}/> Download Template
+              </button>
+              <div className="product-list-export-action" style={{position:'relative'}}>
+                <button ref={exportBtnRef} className="btn btn-outline-secondary btn-sm product-list-action-button product-export-button"
+                  onMouseDown={e => e.stopPropagation()}
+                  onClick={() => setShowDataMenu(v => !v)}>
+                  <FileDown size={14}/> Export
+                </button>
+              </div>
+            </div>
+            <button className="btn btn-primary btn-sm product-list-action-button product-add-button product-list-tablet-add" onClick={() => navigate('/products/new')}>
+              <PlusIcon/> Add Product
+            </button>
+            <AutoFitColumns tableRef={autoFitTableRef} excelSelection className="product-list-auto-fit-button product-list-tablet-autofit"/>
+          </div>
           <input ref={fileInputRef} type="file" accept=".xlsx" style={{display:'none'}} onChange={handleImportFile}/>
         </div>
 
@@ -779,7 +886,7 @@ const ProductList = () => {
       <div className={`product-list-workspace${viewMore ? ' drawer-open' : ''}`}>
         <div className="card animate-in animate-in-1 product-list-card">
           <div className="card-body">
-                <div ref={containerRef} className="product-table-zone" tabIndex={0} onKeyDown={handleListKeyDown} onFocus={handleTableFocus}>
+                <div ref={containerRef} className="product-table-zone product-table-container" tabIndex={0} onKeyDown={handleListKeyDown} onFocus={handleTableFocus}>
                   <div className={`desktop-table-view table-wrapper table-wrapper-scroll${!loading && products.length===0 ? ' is-empty' : ''}`}>
                     <table ref={autoFitTableRef} className="product-list-table">
                       <colgroup>
@@ -845,7 +952,7 @@ const ProductList = () => {
                           }}
                           onMouseLeave={() => setHoveredProductId(prev => prev === p.id ? null : prev)}
                           onFocus={() => setHoveredProductId(p.id)}
-                          onClick={e => handleRowClick(e, p.id)}
+                          onClick={e => handleRowClick(e, p)}
                           onDoubleClick={e => handleRowDoubleClick(e, p)}>
                           <td className="row-cb-cell" onClick={e => { e.stopPropagation(); if (isAdmin) toggleSelect(p.id); }}>
                             <input type="checkbox" className="row-cb"
@@ -857,7 +964,11 @@ const ProductList = () => {
                           </td>
                           <td className="product-cell-sno" data-autofit-value={pageStartIndex+idx+1}>{pageStartIndex+idx+1}</td>
                           <td className="product-cell-group hide-below-xl" data-autofit-value={group || BLANK} title={group || BLANK}>{group || BLANK}</td>
-                          <td className="product-cell-name" data-autofit-value={name || BLANK} title={name || BLANK}>{name || BLANK}</td>
+                          <td className="product-cell-name" data-autofit-value={name || BLANK} title={name || BLANK}>
+                            <span className="product-name-value">{name || BLANK}</span>
+                            <span className="mobile-product-meta">Code: {p.ProductCode || '--'}</span>
+                            <span className="mobile-product-meta">Group: {group || '--'}</span>
+                          </td>
                           <td className="product-cell-qty hide-below-sm" data-autofit-value={qty ?? BLANK} title={qty ?? BLANK}>{qty ?? BLANK}</td>
                           <td className="product-cell-unit hide-below-md" data-autofit-value={unit || BLANK} title={unit || BLANK}>{unit || BLANK}</td>
                           <td className="product-cell-gst hide-below-xl" data-autofit-value={`${gst ?? 0}%`} title={`${gst ?? 0}%`}>{gst ?? 0}%</td>
@@ -875,21 +986,53 @@ const ProductList = () => {
                             />
                           </td>
                           <td className="responsive-more-cell">
+                            <div className="tablet-product-row-actions" aria-label="Product actions">
+                            <RowActionPopup
+                              visible={selected.size < 2 && hoveredProductId === p.id && dismissedActionProductId !== p.id}
+                              onDismiss={() => { setDismissedActionProductId(hoveredProductId ?? selectedProductId); setHoveredProductId(null); }}
+                              actions={[
+                                { type:'view', title:'View More', onClick:() => openProductDetails(p) },
+                                isAdmin && { type:'delete', title:'Delete', variant:'danger', onClick:() => { selectProduct(p.id); setDelTarget(p.id); setShowDel(true); } },
+                              ]}
+                            />
                             <button type="button" className="table-more-button"
-                              onClick={e => { e.stopPropagation(); toggleExpanded(p.id); }}
+                              onClick={e => { e.stopPropagation(); isTabletLayout ? openProductDetails(p) : toggleExpanded(p.id); }}
                               aria-expanded={isExpanded}>
-                              {isExpanded ? 'Less' : 'More'}
+                              {isExpanded ? 'Show Less' : 'View More'}
                             </button>
+                            {isAdmin && (
+                              <button type="button" className="product-mobile-edit-button"
+                                onClick={e => { e.stopPropagation(); navigate(`/products/${p.id}`); }}>
+                                Edit
+                              </button>
+                            )}
+                            </div>
                           </td>
                         </tr>
-                        {isExpanded && (
-                          <tr className="detail-row">
+                        {isExpanded && !isTabletLayout && (
+                          <tr className="detail-row product-expanded-row">
                             <td colSpan={9} className="detail-row-cell">
-                              <div className="detail-grid">
-                                <div><span>Group</span><strong>{group || BLANK}</strong></div>
-                                <div><span>Qty</span><strong>{qty ?? BLANK}</strong></div>
-                                <div><span>Unit</span><strong>{unit || BLANK}</strong></div>
-                                <div><span>GST</span><strong>{gst ?? 0}%</strong></div>
+                              <div className="product-expanded-card">
+                                <div className="product-expanded-header">
+                                  <strong>Product Details</strong>
+                                  <button type="button" className="table-more-button" onClick={() => toggleExpanded(p.id)}>Show Less</button>
+                                </div>
+                                <div className="product-expanded-grid">
+                                  {[
+                                    ['Product Name', name], ['Product Code', p.ProductCode || p.ProductCodeValue || p.Code],
+                                    ['Tamil Name', p.ProductNameTamil || p.ProductName_Tamil || p.TamilName], ['Product Group', group],
+                                    ['Quantity in Hand', qty], ['Unit', unit], ['HSN Code', p.HSNCode || p.HSN],
+                                    ['GST %', gst == null ? null : `${gst}%`], ['Status', active ? 'Active' : 'Inactive'],
+                                    ['Price A', priceByName(p, 'A')], ['Price B', priceByName(p, 'B')],
+                                    ['Price C', priceByName(p, 'C')], ['Price D', priceByName(p, 'D')],
+                                    ['Retail Price', priceByName(p, 'Retail')], ['Description', p.Description, true],
+                                  ].map(([label, value, fullWidth]) => (
+                                    <div key={label} className={`product-detail-item${fullWidth ? ' product-detail-full-width' : ''}`}>
+                                      <span className="product-detail-label">{label}</span>
+                                      <span className="product-detail-value">{displayValue(value)}</span>
+                                    </div>
+                                  ))}
+                                </div>
                               </div>
                             </td>
                           </tr>
@@ -900,6 +1043,57 @@ const ProductList = () => {
                       </tbody>
                     </table>
                   </div>
+
+                  <div className="mobile-product-section-header" aria-hidden="true">
+                    Product Details
+                  </div>
+                  <div className="mobile-product-list" aria-label="Products">
+                    {products.length === 0 ? (
+                      <div className="mobile-product-empty">
+                        {debSearch || groupFilter || statusFilter ? 'No matching records found' : 'No records found'}
+                      </div>
+                    ) : products.map((p, idx) => {
+                      const group = productGroup(p);
+                      const name = productName(p);
+                      const code = p.ProductCode || p.ProductCodeValue || p.Code || BLANK;
+                      return (
+                        <article className="mobile-product-row" key={p.id}>
+                          <button type="button" className="mobile-product-summary" onClick={() => openProductDetails(p)}>
+                            <span className="mobile-product-name">{name || BLANK}</span>
+                            <span className="mobile-product-meta">{code} &middot; {group || BLANK}</span>
+                            <span className="tablet-product-card-details">
+                              <span>Qty: {productQty(p) ?? '—'}</span>
+                              <span>Unit: {productUnit(p) || '—'}</span>
+                              <span className={productIsActive(p) ? 'tablet-status-active' : 'tablet-status-inactive'}>
+                                {productIsActive(p) ? 'Active' : 'Inactive'}
+                              </span>
+                            </span>
+                          </button>
+                          <div className="mobile-product-actions">
+                            <button type="button" className="tablet-view-more-btn" onClick={e => { e.stopPropagation(); openProductDetails(p); }}>
+                              View More →
+                            </button>
+                            <button
+                              type="button"
+                              className="mobile-product-action-button"
+                              onClick={e => { e.stopPropagation(); setMobileActionProductId(id => id === p.id ? null : p.id); }}
+                              aria-label={`Actions for ${name || 'product'}`}
+                              aria-expanded={mobileActionProductId === p.id}
+                              title="Product actions">
+                              <MoreVertical size={17} strokeWidth={2.4} />
+                            </button>
+                            {mobileActionProductId === p.id && (
+                              <div className="mobile-product-action-menu" role="menu">
+                                <button type="button" role="menuitem" aria-label="View Details" title="View Details" onClick={() => { mobileProductViewRef.current = null; setMobileActionProductId(null); openProductDetails(p); }}><Eye size={15} /></button>
+                                {isAdmin && <button type="button" role="menuitem" aria-label="Edit" title="Edit" onClick={() => { setMobileActionProductId(null); openProductEditPage(p); }}><Pencil size={15} /></button>}
+                                {isAdmin && <button type="button" role="menuitem" className="danger" aria-label="Delete" title="Delete" onClick={() => { setMobileActionProductId(null); selectProduct(p.id); setDelTarget(p.id); setShowDel(true); }}><Trash2 size={15} /></button>}
+                              </div>
+                            )}
+                          </div>
+                        </article>
+                      );
+                    })}
+                  </div>
                 </div>
 
                 <div ref={bottomRef} className="product-list-footer">
@@ -908,19 +1102,20 @@ const ProductList = () => {
                   </div>
                   <div className="product-pagination-controls">
                     <div className="pagination" style={{marginTop:0}}>
-                      <button className="pg-item" disabled={loadedPage===1 || total===0} onClick={() => setPage(Math.max(1,loadedPage-1))}>Previous</button>
+                      <button className="pg-item product-pagination-prev" disabled={loadedPage===1 || total===0} onClick={() => setPage(Math.max(1,loadedPage-1))}>Previous</button>
                       {total > 0 && buildPages().map((n,i) =>
                         n==='...'
                           ? <span key={`e${i}`} className="pg-item" style={{border:'none',cursor:'default',color:'var(--text-muted)'}}>...</span>
-                          : <button key={n} className={`pg-item${loadedPage===n?' active':''}`} onClick={() => setPage(n)}>{n}</button>
+                          : <button key={n} className={`pg-item product-pagination-page${loadedPage===n?' active':''}`} onClick={() => setPage(n)}>{n}</button>
                       )}
-                      <button className="pg-item" disabled={loadedPage===totalPages || total===0} onClick={() => setPage(Math.min(totalPages,loadedPage+1))}>Next</button>
+                      <span className="product-pagination-summary">Page {loadedPage} of {totalPages || 1}</span>
+                      <button className="pg-item product-pagination-next" disabled={loadedPage===totalPages || total===0} onClick={() => setPage(Math.min(totalPages,loadedPage+1))}>Next</button>
                     </div>
                   </div>
                 </div>
           </div>
         </div>
-        {viewMore && <ProductDetailsDrawer product={viewMore} onClose={() => setViewMore(null)}/>}
+        {viewMore && <ProductDetailsDrawer product={viewMore} onClose={() => setViewMore(null)} returnFocusRef={mobileProductViewRef}/>}
       </div>
       <ConfirmModal
         show={showDel}

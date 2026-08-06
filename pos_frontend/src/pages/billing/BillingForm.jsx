@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { Fragment, useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { Plus } from 'lucide-react';
@@ -89,7 +89,7 @@ const useDropdownPos = (inputRef, open) => {
 };
 
 /* ── CustomerSearchDropdown ── */
-const CustomerSearchDropdown = ({ customers, value, onChange, disabled, onNavigateToAdd, inputRef: extRef, onNext, onPrev, onSearch, loading, error }) => {
+const CustomerSearchDropdown = ({ customers, value, onChange, disabled, inputRef: extRef, onNext, onPrev, onSearch, loading, error, className = '' }) => {
   const [q, setQ] = useState('');
   const [open, setOpen] = useState(false);
   const [hi, setHi] = useState(-1);
@@ -161,10 +161,6 @@ const CustomerSearchDropdown = ({ customers, value, onChange, disabled, onNaviga
         else setOpen(true);
         return;
       }
-      if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        setOpen(true);
-      }
       return;
     }
     if (e.key === 'ArrowDown') { e.preventDefault(); setHi(h => Math.min(h + 1, filtered.length - 1)); }
@@ -210,7 +206,7 @@ const CustomerSearchDropdown = ({ customers, value, onChange, disabled, onNaviga
   ) : null;
 
   return (
-    <div style={{display:'flex',alignItems:'center',gap:'.4rem'}}>
+    <div className={className} style={{display:'flex',alignItems:'center',gap:'.4rem'}}>
       <div style={{position:'relative',flex:'0 1 260px',minWidth:170,maxWidth:280}}>
         <input ref={inputRef} type="text" value={q} disabled={disabled} autoComplete="off"
           data-sales-dropdown="true"
@@ -221,22 +217,16 @@ const CustomerSearchDropdown = ({ customers, value, onChange, disabled, onNaviga
             outline:'none',background:'var(--card-bg)',color:'var(--text-primary)',
             paddingRight:'1.6rem',transition:'border-color .15s'}}
           onChange={e => { setQ(e.target.value); setOpen(true); setHi(0); if (!e.target.value) onChange(null); }}
-          onFocus={() => { setOpen(true); setHi(-1); inputRef.current?.select?.(); }}
-          onBlur={() => { blurTimer.current = setTimeout(() => { setOpen(false); if (!sel) setQ(''); else setQ(sel.CustomerName); }, 180); }}
+          onFocus={() => { setHi(-1); inputRef.current?.select?.(); }}
+          onMouseDown={() => { if (!disabled) { clearTimeout(blurTimer.current); setOpen(true); setHi(-1); } }}
+          onBlur={() => { clearTimeout(blurTimer.current); setOpen(false); if (!sel) setQ(''); else setQ(sel.CustomerName); }}
           onKeyDown={handleKey}/>
-        <span onMouseDown={e => { e.preventDefault(); clearTimeout(blurTimer.current); if (!disabled) { setOpen(o => !o); setTimeout(() => inputRef.current?.focus(), 0); } }}
+        <span onMouseDown={e => { e.preventDefault(); clearTimeout(blurTimer.current); if (!disabled) { setOpen(o => !o); } }}
           style={{position:'absolute',right:'.45rem',top:'50%',transform:'translateY(-50%)',
             cursor:disabled?'not-allowed':'pointer',color:'var(--text-muted)',fontSize:'.6rem',
             userSelect:'none',lineHeight:1}}>▾</span>
         {dropList}
       </div>
-      {!disabled && (
-        <button type="button" title="Add new customer" tabIndex={-1} onClick={() => onNavigateToAdd?.()}
-          style={{width:26,height:26,borderRadius:6,border:`1.5px solid ${BRAND}`,
-            background:BRAND_LIGHT,color:BRAND,fontWeight:800,fontSize:'1rem',
-            cursor:'pointer',flexShrink:0,display:'flex',alignItems:'center',
-            justifyContent:'center',lineHeight:1}}>+</button>
-      )}
     </div>
   );
 };
@@ -249,14 +239,17 @@ const PriceCodeDropdown = ({
   inputRef: extRef, onNext, onPrev,
 }) => {
   const [open, setOpen] = useState(false);
+  const [menuRect, setMenuRect] = useState(null);
   const [search, setSearch] = useState('');
   const [hi, setHi] = useState(0);
   const wrapRef  = useRef(null);
   const { menuClassName, mobileMenuStyle } = useMobileDropdownPlacement(wrapRef, open);
   const searchRef = useRef(null);
   const listRef  = useRef(null);
+  const menuRef  = useRef(null);
   const inputRef = extRef || useRef(null); // eslint-disable-line
   const suppressNextOpenRef = useRef(false);
+  const committedSelectionRef = useRef(false);
 
   const priceCodeOrder = { A: 1, B: 2, C: 3, D: 4, Retail: 5 };
   const validPriceCodes = priceCodes
@@ -271,6 +264,7 @@ const PriceCodeDropdown = ({
     const tier = (productData.prices || []).find(p => p.PriceCodeID === pc.id);
     return tier ? `${displayName} — ₹${parseFloat(tier.ProductPrice).toFixed(2)}` : displayName;
   };
+  const optionLabel = pc => pc?.id == null ? 'Select Price Code' : label(pc);
 
   /* Reset display when row key changes (row reused) */
   useEffect(() => { setOpen(false); setSearch(''); }, [rowKey]); // eslint-disable-line
@@ -279,12 +273,41 @@ const PriceCodeDropdown = ({
   useEffect(() => {
     if (!open) return;
     const h = e => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target)) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)
+        && !menuRef.current?.contains(e.target)) {
         setOpen(false); setSearch('');
       }
     };
     document.addEventListener('mousedown', h);
     return () => document.removeEventListener('mousedown', h);
+  }, [open]);
+
+  // The menu is portaled below; keep its fixed position aligned with the trigger.
+  useEffect(() => {
+    if (!open) { setMenuRect(null); return undefined; }
+    const update = () => {
+      const rect = wrapRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const width = Math.min(Math.max(rect.width, 150), window.innerWidth - 24);
+      const left = Math.max(12, Math.min(rect.left, window.innerWidth - width - 12));
+      const below = window.innerHeight - rect.bottom - 12;
+      const above = rect.top - 12;
+      const openUp = below < 180 && above > below;
+      setMenuRect({
+        left, width,
+        top: openUp ? undefined : rect.bottom + 3,
+        bottom: openUp ? window.innerHeight - rect.top + 3 : undefined,
+        maxHeight: Math.max(120, Math.min(240, openUp ? above : below)),
+        openUp,
+      });
+    };
+    update();
+    window.addEventListener('resize', update);
+    window.addEventListener('scroll', update, true);
+    return () => {
+      window.removeEventListener('resize', update);
+      window.removeEventListener('scroll', update, true);
+    };
   }, [open]);
 
   /* Focus search input when dropdown opens */
@@ -299,25 +322,27 @@ const PriceCodeDropdown = ({
   );
 
   const pick = pc => {
-    onChange(pc.id);
+    onChange(pc?.id ?? null);
     setOpen(false);
     setSearch('');
     setHi(0);
+    if (pc?.id == null) {
+      committedSelectionRef.current = false;
+      onNext?.(null);
+      return;
+    }
+    committedSelectionRef.current = true;
     setTimeout(() => inputRef.current?.focus(), 0);
   };
 
   const openDrop = () => {
     if (disabled) return;
-    setHi(sel ? Math.max(0, navigablePriceCodes.indexOf(sel)) : 0);
+    setHi(sel ? navigablePriceCodes.indexOf(sel) + 1 : 0);
     setOpen(true);
   };
 
   const handleTriggerFocus = () => {
-    if (suppressNextOpenRef.current) {
-      suppressNextOpenRef.current = false;
-      return;
-    }
-    openDrop();
+    if (suppressNextOpenRef.current) suppressNextOpenRef.current = false;
   };
 
   /* Keyboard on the trigger input (the display span/button) */
@@ -326,6 +351,12 @@ const PriceCodeDropdown = ({
     if (e.key === 'Backspace' && !value) { e.preventDefault(); setOpen(false); onPrev?.(); return; }
     if (e.key === 'Enter') {
       e.preventDefault();
+      if (committedSelectionRef.current) {
+        committedSelectionRef.current = false;
+        setOpen(false);
+        onNext?.();
+        return;
+      }
       if (value) {
         setOpen(false);
         onNext?.();
@@ -337,7 +368,7 @@ const PriceCodeDropdown = ({
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
       if (disabled) return;
-      setHi(e.key === 'ArrowUp' ? navigablePriceCodes.length - 1 : (navigablePriceCodes.length ? 0 : -1));
+      setHi(e.key === 'ArrowUp' ? navigablePriceCodes.length : 0);
       setOpen(true);
       return;
     }
@@ -360,13 +391,16 @@ const PriceCodeDropdown = ({
     }
     if (e.key === 'ArrowDown') {
       e.preventDefault();
-      setHi(h => filtered.length ? (h < 0 ? 0 : Math.min(h + 1, filtered.length - 1)) : -1);
+      setHi(h => Math.min(Math.max(h, 0) + 1, filtered.length));
     }
     else if (e.key === 'ArrowUp') {
       e.preventDefault();
-      setHi(h => filtered.length ? (h < 0 ? filtered.length - 1 : Math.max(h - 1, 0)) : -1);
+      setHi(h => Math.max(Math.min(h, filtered.length) - 1, 0));
     }
-    else if (e.key === 'Enter') { e.preventDefault(); if (filtered[hi]) pick(filtered[hi]); }
+    else if (e.key === 'Enter') {
+      e.preventDefault();
+      pick(hi === 0 ? null : filtered[hi - 1]);
+    }
   };
 
   useEffect(() => {
@@ -444,12 +478,13 @@ const PriceCodeDropdown = ({
       </button>
 
       {/* Absolute dropdown — stays inside the cell */}
-      {open && (
-        <div className={menuClassName} data-sales-dropdown-open="true" style={{...mobileMenuStyle,
-          position:'absolute', top:'calc(100% + 3px)', left:0, minWidth:'100%', width:'max-content', maxWidth:260,
+      {open && menuRect && createPortal(
+        <div ref={menuRef} className={menuClassName} data-sales-dropdown-open="true" style={{...mobileMenuStyle,
+          position:'fixed', top:menuRect.top, bottom:menuRect.bottom, left:menuRect.left,
+          width:menuRect.width, minWidth:menuRect.width, maxWidth:'calc(100vw - 24px)',
           zIndex:99999, background:'#fff', border:`1.5px solid ${BRAND}`,
           borderRadius:'0 0 7px 7px', boxShadow:'0 8px 24px rgba(0,0,0,.18)',
-          display:'flex', flexDirection:'column',
+          display:'flex', flexDirection:'column', maxHeight:menuRect.maxHeight, overflow:'hidden',
         }}>
           {/* Search input — always visible at top */}
           <div style={{padding:'.3rem .5rem', borderBottom:`1px solid ${BRAND}22`, background:'#fff', flexShrink:0}}>
@@ -471,27 +506,26 @@ const PriceCodeDropdown = ({
           </div>
           {/* Options list — scrollable */}
           <ul ref={listRef} style={{margin:0, padding:0, listStyle:'none', maxHeight:190, overflowY:'auto', flex:1}}>
-            {filtered.length === 0 ? (
-              <li style={{padding:'.45rem .65rem', color:'var(--text-muted)', fontSize:'.78rem', fontStyle:'italic'}}>
-                No price codes available for this product
-              </li>
-            ) : filtered.map((pc, i) => (
-              <li key={pc.id}
+            {[
+              { id: null, PriceCodeName: '', DisplayLabel: 'Select Price Code' },
+              ...filtered,
+            ].map((pc, i, options) => (
+              <li key={pc.id ?? 'empty-price-code'}
                 onMouseDown={e => { e.preventDefault(); pick(pc); }}
                 onMouseEnter={() => setHi(i)}
                 style={{
                   padding:'.38rem .65rem', fontSize:'.82rem', cursor:'pointer',
-                  background: value === pc.id ? BRAND_LIGHT : hi === i ? '#f5f0eb' : 'transparent',
-                  fontWeight: value === pc.id ? 700 : 400,
-                  color: value === pc.id ? BRAND : 'var(--text-primary)',
-                  borderBottom: i < filtered.length - 1 ? '1px solid var(--divider)' : 'none',
+                  background: pc.id === value ? BRAND_LIGHT : hi === i ? '#f5f0eb' : 'transparent',
+                  fontWeight: pc.id === value ? 700 : 400,
+                  color: pc.id === value ? BRAND : 'var(--text-primary)',
+                  borderBottom: i < options.length - 1 ? '1px solid var(--divider)' : 'none',
                   transition:'background .1s',
                 }}>
-                {label(pc)}
+                {optionLabel(pc)}
               </li>
             ))}
           </ul>
-        </div>
+        </div>, document.body
       )}
     </div>
   );
@@ -507,7 +541,7 @@ const PRODUCT_VISIBLE_OVERSCAN = 4;
 const ProductSearchDropdown = ({
   products, selectedProduct, value, onChange, disabled, inputRef: extRef, onNext, onPrev,
   onSearch, onRetry, onLoadMore, loading, loadingMore, hasMore, error,
-  moveToActionsOnEmptyEnter = false, onBackspaceClear,
+  moveToActionsOnEmptyEnter = false, onBackspaceClear, className = '',
 }) => {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -588,11 +622,7 @@ const ProductSearchDropdown = ({
   };
 
   const handleTriggerFocus = () => {
-    if (suppressNextOpenRef.current) {
-      suppressNextOpenRef.current = false;
-      return;
-    }
-    openDrop();
+    if (suppressNextOpenRef.current) suppressNextOpenRef.current = false;
   };
 
   /* Keyboard on trigger (the display button) */
@@ -691,7 +721,7 @@ const ProductSearchDropdown = ({
   };
 
   return (
-    <div style={{display:'flex',alignItems:'center',gap:'.25rem',width:'100%',minWidth:0}}>
+    <div className={className} style={{display:'flex',alignItems:'center',gap:'.25rem',width:'100%',minWidth:0}}>
     <div ref={wrapRef} style={{position:'relative', width:'100%', minWidth:0, overflow:'visible'}}>
       {/* Trigger button — shows selected product or placeholder */}
       <button
@@ -724,7 +754,7 @@ const ProductSearchDropdown = ({
           </span>
         ) : (
           <span style={{color:'var(--text-muted)', overflow:'hidden', textOverflow:'ellipsis', flex:1}}>
-            Select particulars
+            Search or select full product name...
           </span>
         )}
         <span style={{
@@ -969,6 +999,7 @@ const BillingForm = () => {
   const [showDel,    setShowDel]    = useState(false);
   const [deleting,   setDeleting]   = useState(false);
   const [billingPage, setBillingPage] = useState(1);
+  const [mobileEditingRowKey, setMobileEditingRowKey] = useState(null);
 
   /* cell refs: cellRefs.current[rowIdx][colKey] = HTMLElement */
   const cellRefs   = useRef({});
@@ -1149,6 +1180,7 @@ const BillingForm = () => {
       focusCell(rowIdx, COL_RATE);
       return;
     }
+    setMobileEditingRowKey(null);
     setRows(prev => {
       const next = currentPatch
         ? prev.map((r, i) => (i === rowIdx ? { ...r, ...currentPatch } : r))
@@ -1175,6 +1207,19 @@ const BillingForm = () => {
     if (!isRowComplete(next)) return;
     completeRowCreateNextAndFocusProduct(rowIdx, currentPatch);
   }, [completeRowCreateNextAndFocusProduct]);
+
+  // Keep one usable trailing row even when a fixed customer's rate is filled
+  // without a manual price-code selection event.
+  useEffect(() => {
+    if (!rows.length || !isRowComplete(rows[rows.length - 1])) return;
+    setRows(prev => {
+      const last = prev[prev.length - 1];
+      if (!last || !isRowComplete(last) || prev.some(isBlankRow)) return prev;
+      const blank = makeReadyBlankRow();
+      pendingProductFocusRef.current = blank._key;
+      return [...prev, blank];
+    });
+  }, [rows, makeReadyBlankRow]);
 
   /* ── navigate to next/prev cell ── */
   const navigateCell = useCallback((rowIdx, col, dir, currentPatch = null) => {
@@ -1398,6 +1443,7 @@ const BillingForm = () => {
     restoredDraftRef.current = true;
     const createdProduct = location.state?.createdProduct;
     const createdProductPrice = location.state?.createdProductPrice || createdProduct?.product_price || null;
+    const restoredPriceIsFixed = draft?.priceConfig?.PriceCodeType === 'Fixed';
     if (createdProduct?.id) {
       setProducts(prev => prev.some(product => product.id === createdProduct.id)
         ? prev
@@ -1420,26 +1466,30 @@ const BillingForm = () => {
           ...restoredRows[targetIndex],
           ProductID: createdProduct.id,
           productData: createdProduct,
-          PriceCodeID: createdProductPrice?.price_code_id
+          PriceCodeID: restoredPriceIsFixed ? (createdProductPrice?.price_code_id
             ?? createdProductPrice?.PriceCodeID
-            ?? (draft.priceConfig?.PriceCodeType === 'Fixed' ? draft.priceConfig.FixedPriceCodeID : null),
-          rate: (() => {
+            ?? draft.priceConfig.FixedPriceCodeID) : null,
+          rate: restoredPriceIsFixed ? (() => {
             const savedRate = Number(
               createdProductPrice?.price
                 ?? createdProductPrice?.ProductPrice
                 ?? createdProductPrice?.rate
             );
             if (Number.isFinite(savedRate)) return String(savedRate);
-            return draft.priceConfig?.PriceCodeType === 'Fixed'
-              ? getRateForCode(createdProduct, draft.priceConfig.FixedPriceCodeID)
-              : '';
-          })(),
+            return getRateForCode(createdProduct, draft.priceConfig.FixedPriceCodeID);
+          })() : '',
           changeableRate: '',
           isRateEditable: false,
           GSTPercent: createdProduct.GSTPercent > 0 ? String(createdProduct.GSTPercent) : '',
           _inactive: false,
         };
-        setTimeout(() => focusCell(targetIndex, COL_QTY), 120);
+        const restoredRow = restoredRows[targetIndex];
+        const nextField = !restoredRow?.Qty
+          ? COL_QTY
+          : restoredPriceIsFixed
+            ? COL_QTY
+            : COL_PRICE_CODE;
+        setTimeout(() => focusCell(targetIndex, nextField), 120);
       }
       setRows(restoredRows);
     }
@@ -2029,36 +2079,42 @@ const BillingForm = () => {
         .remove-btn:disabled { opacity:.35; cursor:not-allowed; pointer-events:none; }
       `}</style>
 
-            <form ref={pageRef} className={`billing-form-page${isFixed ? ' is-fixed-pricing' : ''}`}
+            <form ref={pageRef} className={`billing-form-page sales-form-card${isFixed ? ' is-fixed-pricing' : ''}`}
               onKeyDown={handleFormKeyDown}
               onSubmit={e => e.preventDefault()}
               style={{padding:'0'}}>
 
-        <div className="sales-compact-topbar">
-          <h1 className="sales-compact-title">
+        <div className="sales-compact-topbar sales-header">
+          <h1 className="sales-compact-title sales-title">
             {isViewMode ? `View Invoice ${editBillNo}` : isEdit ? `Edit Invoice ${editBillNo}` : 'Sales'}
           </h1>
 
-          <div className="sales-compact-customer">
-            <span className="sales-compact-label">
+          <div className="sales-compact-customer sales-customer-field customer-field mobile-customer-field sales-full-search-field">
+            <span className="sales-compact-label customer-label">
               Customer Name <span style={{color:'var(--danger)'}}>*</span>
             </span>
             {isEdit ? (
-              <input
-                type="text"
-                value={editCustomerName}
-                readOnly
-                tabIndex={-1}
-                aria-label="Customer Name"
-                className="customer-readonly-input"
-                style={{width:'100%',height:32,padding:'.25rem .6rem',fontSize:'.82rem',border:'1.5px solid var(--border-input)',borderRadius:6,background:'var(--bg-soft)',color:'var(--text-primary)',fontWeight:600}}
-              />
+              <div className="full-width-dropdown-row sales-full-search-row sales-customer-input-row customer-control-group customer-input-row mobile-customer-row customer-field-row">
+                <div className="full-width-dropdown sales-search-dropdown mobile-customer-dropdown customer-dropdown">
+                <input
+                  type="text"
+                  value={editCustomerName}
+                  readOnly
+                  tabIndex={-1}
+                  aria-label="Customer Name"
+                  className="customer-readonly-input"
+                  style={{width:'100%',height:32,padding:'.25rem .6rem',fontSize:'.82rem',border:'1.5px solid var(--border-input)',borderRadius:6,background:'var(--bg-soft)',color:'var(--text-primary)',fontWeight:600}}
+                />
+                </div>
+              </div>
             ) : (
+              <div className="full-width-dropdown-row sales-full-search-row sales-customer-input-row customer-control-group customer-input-row mobile-customer-row customer-field-row">
+              <div className="full-width-dropdown sales-search-dropdown mobile-customer-dropdown customer-dropdown">
               <CustomerSearchDropdown
                 customers={customers}
                 value={customerID}
                 onChange={handleCustomerChange}
-                onNavigateToAdd={goToAddCustomer}
+                className="customer-dropdown-wrapper"
                 disabled={saving || isReadOnly}
                 inputRef={custRef}
                 onNext={() => focusCell(0, activeCols(rows[0])[0])}
@@ -2067,10 +2123,14 @@ const BillingForm = () => {
                 loading={customersLoading}
                 error={customersError}
               />
+              </div>
+              <button type="button" className="sales-small-add-button small-add-button mobile-add-customer-button add-customer-button customer-add-button sales-customer-add-button"
+                aria-label="Add Customer" title="Add new customer" tabIndex={-1} onClick={goToAddCustomer}>+</button>
+              </div>
             )}
           </div>
 
-          <div className="sales-compact-price">
+          <div className="sales-compact-price price-code-type-section">
             <span className="sales-compact-label">Price Code Type:</span>
             {priceConfig && !priceConfig.PriceConfigurationMissing ? (
               <span className="sales-compact-price-pill" style={{
@@ -2101,7 +2161,7 @@ const BillingForm = () => {
           {savedBillNo && !isEdit && (
             <span className="sales-compact-saved">Last saved: {savedBillNo}</span>
           )}
-          <AutoFitColumns tableRef={autoFitTableRef}/>
+          <AutoFitColumns tableRef={autoFitTableRef} className="sales-autofit-button"/>
         </div>
 
         
@@ -2121,6 +2181,9 @@ const BillingForm = () => {
 
           {/* Table wrapper — overflow must stay visible so absolute dropdowns aren't clipped */}
           <div className="sales-entry-table-wrap" style={{width:'100%'}}>
+            {rows.some(isRowComplete) && (
+              <div className="mobile-added-items-heading">Added Items</div>
+            )}
             <table ref={autoFitTableRef} className="sales-entry-table" style={{width:'100%',borderCollapse:'collapse',tableLayout:'fixed'}}>
               <colgroup>
                 <col className="sales-entry-col-sno" />
@@ -2135,19 +2198,7 @@ const BillingForm = () => {
                 <tr style={{background:HEADER_BG}}>
                   <th className="bf-th" style={{textAlign:'center'}}>S.no</th>
                   <th className="bf-th billing-particulars-header">
-                    <div className="billing-particulars-header-content">
-                      <span>PARTICULARS</span>
-                      {!isReadOnly && (
-                        <button type="button"
-                          className="billing-product-add-icon"
-                          onClick={goToAddProduct}
-                          aria-label="Add new product"
-                          title="Add Product"
-                          tabIndex={-1}>
-                          <Plus size={14}/>
-                        </button>
-                      )}
-                    </div>
+                    <span>PARTICULARS</span>
                   </th>
                   <th className="bf-th" style={{textAlign:'right'}}>QTY</th>
                   <th className="bf-th">PRICE CODE</th>
@@ -2169,9 +2220,18 @@ const BillingForm = () => {
                   const rateErr       = rateErrors[idx];
                   const isCompleted   = isRowComplete(row);
                   const isFinalBlankRow = idx === rows.length - 1 && isBlankRow(row);
+                  const isMobileActive = !isCompleted || isFinalBlankRow || mobileEditingRowKey === row._key;
 
                   return (
-                    <tr key={row._key} ref={visibleIdx === 0 ? billingRowRef : undefined} className={`bf-row${rowErr ? ' bf-row-error' : ''}${row._inactive ? ' bf-row-inactive' : ''}`}
+                    <Fragment key={row._key}>
+                    {isMobileActive && (
+                      <tr className="mobile-current-heading-row">
+                        <td className="mobile-current-heading" colSpan={7}>
+                          {mobileEditingRowKey === row._key ? `Edit Item ${idx + 1}` : 'Add New Item'}
+                        </td>
+                      </tr>
+                    )}
+                    <tr ref={visibleIdx === 0 ? billingRowRef : undefined} className={`bf-row${rowErr ? ' bf-row-error' : ''}${row._inactive ? ' bf-row-inactive' : ''}${isMobileActive ? ' mobile-active-row mobile-add-item-card' : ' mobile-completed-row'}`}
                       tabIndex={row._inactive ? 0 : undefined}
                       aria-label={row._inactive ? 'Empty billing row. Press Enter or click to add an item.' : undefined}
                       onFocusCapture={() => { lastFocusedBillingRowRef.current = idx; }}
@@ -2186,6 +2246,28 @@ const BillingForm = () => {
                       }}
                       style={{background: idx % 2 === 0 ? 'transparent' : ALT_ROW}}>
 
+                      {!isMobileActive && (
+                        <td className="mobile-completed-summary" colSpan={7}>
+                          <span className="mobile-completed-number">{idx + 1}</span>
+                          <span className="mobile-completed-name" title={row.productData?.ProductName || ''}>
+                            {row.productData?.ProductName || 'Item'}
+                          </span>
+                          <span className="mobile-completed-meta">
+                            Qty {qty}{!isFixed && row.PriceCodeID ? ` · ${priceCodes.find(pc => String(pc.id) === String(row.PriceCodeID))?.PriceCodeName || 'Price'}` : ''}
+                          </span>
+                          <strong className="mobile-completed-amount">{fmtMoney(lineAmt)}</strong>
+                          {!isReadOnly && (
+                            <button type="button" className="mobile-completed-edit" onClick={() => {
+                              setMobileEditingRowKey(row._key);
+                              focusCell(idx, COL_PRODUCT);
+                            }}>Edit</button>
+                          )}
+                          {!isReadOnly && !row._inactive && (
+                            <button type="button" className="mobile-completed-delete" onClick={() => removeRow(idx)} aria-label={`Delete item ${idx + 1}`}>×</button>
+                          )}
+                        </td>
+                      )}
+
                       {/* # */}
                       <td className="bf-td" style={{textAlign:'center',fontSize:'.72rem',
                         color:'var(--text-muted)',fontWeight:700}}>
@@ -2193,39 +2275,54 @@ const BillingForm = () => {
                       </td>
 
                       {/* Particulars (product search) */}
-                      <td className="bf-td" style={{overflow:'visible',position:'relative'}}>
-                        <ProductSearchDropdown
-                          products={products}
-                          selectedProduct={row.productData}
-                          value={row.ProductID}
-                          onChange={pid => handleProductChange(idx, pid)}
-                          disabled={saving || isReadOnly || row._inactive}
-                          inputRef={el => setCellRef(row._key, COL_PRODUCT, el)}
-                          onNext={(selectedProductId) => {
-                            navigateCell(idx, COL_PRODUCT, 1, selectedProductId ? { ProductID: selectedProductId } : null);
-                          }}
-                          onPrev={() => {
-                            navigateCell(idx, COL_PRODUCT, -1);
-                          }}
-                          onBackspaceClear={() => {
-                            updateRow(idx, {
-                              ProductID: null,
-                              productData: null,
-                              PriceCodeID: null,
-                              rate: '',
-                              changeableRate: '',
-                              isRateEditable: false,
-                              GSTPercent: '',
-                            });
-                          }}
-                          onSearch={loadProducts}
-                          onLoadMore={loadMoreProducts}
-                          onRetry={retryProducts}
-                          loading={productsLoading}
-                          loadingMore={productsLoadingMore}
-                          hasMore={productsHasMore}
-                          error={productsError}
-                        />
+                      <td className="bf-td mobile-sales-field mobile-particulars-field sales-full-search-field particulars-field" style={{overflow:'visible',position:'relative'}}>
+                        <div className="billing-product-field full-width-dropdown-row sales-full-search-row particulars-input-row mobile-particulars-row particulars-field-row">
+                          <div className="full-width-dropdown sales-search-dropdown mobile-particulars-dropdown particulars-dropdown">
+                          <ProductSearchDropdown
+                            products={products}
+                            selectedProduct={row.productData}
+                            value={row.ProductID}
+                            onChange={pid => handleProductChange(idx, pid)}
+                            disabled={saving || isReadOnly || row._inactive}
+                            inputRef={el => setCellRef(row._key, COL_PRODUCT, el)}
+                            onNext={(selectedProductId) => {
+                              navigateCell(idx, COL_PRODUCT, 1, selectedProductId ? { ProductID: selectedProductId } : null);
+                            }}
+                            onPrev={() => {
+                              navigateCell(idx, COL_PRODUCT, -1);
+                            }}
+                            onBackspaceClear={() => {
+                              updateRow(idx, {
+                                ProductID: null,
+                                productData: null,
+                                PriceCodeID: null,
+                                rate: '',
+                                changeableRate: '',
+                                isRateEditable: false,
+                                GSTPercent: '',
+                              });
+                            }}
+                            className="particulars-dropdown-wrapper"
+                            onSearch={loadProducts}
+                            onLoadMore={loadMoreProducts}
+                            onRetry={retryProducts}
+                            loading={productsLoading}
+                            loadingMore={productsLoadingMore}
+                            hasMore={productsHasMore}
+                            error={productsError}
+                          />
+                          </div>
+                          {!isReadOnly && (
+                            <button
+                              type="button"
+                              className="sales-small-add-button add-product-button mobile-add-product-button product-add-button particulars-add-button"
+                              onClick={goToAddProduct}
+                              aria-label="Add new product"
+                              title="Add Product">
+                              <Plus size={16}/>
+                            </button>
+                          )}
+                        </div>
                         {rowErr && (
                           <div style={{fontSize:'.68rem',color:'var(--danger)',fontWeight:500,marginTop:2,paddingLeft:'.45rem'}}>
                             {rowErr}
@@ -2234,7 +2331,7 @@ const BillingForm = () => {
                       </td>
 
                       {/* Qty */}
-                      <td className="bf-td">
+                      <td className="bf-td mobile-sales-field">
                         <input
                           className="bf-input"
                           type="number" min="0.01" step="0.01"
@@ -2274,7 +2371,7 @@ const BillingForm = () => {
                       </td>
 
                       {/* Price Code */}
-                      <td className="bf-td" style={{overflow:'visible',position:'relative'}}>
+                      <td className="bf-td mobile-sales-field" style={{overflow:'visible',position:'relative'}}>
                         {isFixed ? (
                           /* Fixed: show a compact locked badge */
                           <span style={{display:'inline-flex',alignItems:'center',gap:4,
@@ -2315,7 +2412,7 @@ const BillingForm = () => {
                       </td>
 
                       {/* Rate — always directly editable input */}
-                      <td className="bf-td">
+                      <td className="bf-td mobile-sales-field">
                         <input
                           className="bf-input"
                           type="number" min="0" step="0.01"
@@ -2403,7 +2500,7 @@ const BillingForm = () => {
 
                       {/* Amount */}
                       <td
-                        className="bf-td"
+                        className="bf-td mobile-sales-field"
                         ref={el => setCellRef(row._key, COL_AMOUNT, el)}
                         tabIndex={-1}
                         onKeyDown={e => {
@@ -2418,7 +2515,7 @@ const BillingForm = () => {
                           }
                         }}
                         style={{textAlign:'right',outline:'none'}}>
-                        <span style={{fontSize:'.85rem',fontWeight:700,
+                        <span className="mobile-sales-amount" style={{fontSize:'.85rem',fontWeight:700,
                           fontVariantNumeric:'tabular-nums',
                           color: lineAmt > 0 ? `var(--primary-dark,${BRAND})` : 'var(--text-muted)'}}>
                           {isCompleted ? fmtMoney(lineAmt) : '—'}
@@ -2439,6 +2536,7 @@ const BillingForm = () => {
                         </button>}
                       </td>
                     </tr>
+                    </Fragment>
                   );
                 })}
               </tbody>

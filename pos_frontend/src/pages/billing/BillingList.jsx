@@ -11,7 +11,7 @@ import useResponsivePageSize from '../../hooks/useResponsivePageSize';
 import { useToast } from '../../context/ToastContext';
 import { useCompany } from '../../context/CompanyContext';
 import { useAuth } from '../../context/AuthContext';
-import { FileDown, FileSpreadsheet, FileText, Pencil, Award } from 'lucide-react';
+import { FileDown, FileSpreadsheet, FileText, Pencil, Award, Eye, MoreVertical, Trash2 } from 'lucide-react';
 
 /* ── Icons ── */
 import SharedSearchField from '../../components/SharedSearchField';
@@ -420,6 +420,7 @@ const BillingList = () => {
   const [error,     setError]     = useState('');
 
   const [viewMore,     setViewMore]     = useState(null);
+  const [activeBillMenuId, setActiveBillMenuId] = useState(null);
   const [invoiceBill,  setInvoiceBill]  = useState(null);
   const [showDel,      setShowDel]      = useState(false);
   const [delTarget,    setDelTarget]    = useState(null);
@@ -443,6 +444,7 @@ const BillingList = () => {
     mobileRowHeight: 148,
     safeSpacing: 12,
   });
+  const previousPageSizeRef = useRef(pageSize);
 
   const totalPages        = Math.max(1, Math.ceil(total / pageSize));
   const visibleSalesTotal = billings.reduce((sum, bill) => {
@@ -453,6 +455,21 @@ const BillingList = () => {
   useEffect(() => {
     if (page > totalPages) setPage(totalPages);
   }, [page, totalPages]);
+
+  useEffect(() => {
+    if (!activeBillMenuId) return undefined;
+    const closeMenu = event => {
+      if (event.key === 'Escape' || !event.target.closest?.('.billing-mobile-actions')) {
+        setActiveBillMenuId(null);
+      }
+    };
+    document.addEventListener('keydown', closeMenu);
+    document.addEventListener('pointerdown', closeMenu);
+    return () => {
+      document.removeEventListener('keydown', closeMenu);
+      document.removeEventListener('pointerdown', closeMenu);
+    };
+  }, [activeBillMenuId]);
   useEffect(() => {
     const isInteractiveTarget = (target) => Boolean(target?.closest?.(
       'input, select, textarea, button, a, [role="button"], .pagination, .row-action-popup'
@@ -468,7 +485,7 @@ const BillingList = () => {
           clearTimeout(rowClickTimerRef.current);
           rowClickTimerRef.current = null;
         }
-        navigate(`/billing/${billings[kbRow].id}?mode=edit`);
+        navigate(`/billing/${billings[kbRow].id}?mode=view`);
       } else if (e.key === 'Escape') {
         setViewMore(null);
         setDismissedActionBillId(billings[kbRow]?.id ?? hoveredBillId);
@@ -501,6 +518,16 @@ const BillingList = () => {
     navigate(`/billing/${bill.id}?mode=edit`);
   }, [navigate]);
 
+  const isInteractiveRowTarget = target => Boolean(target?.closest?.(
+    'button, a, input, select, textarea, [role="menuitem"], [data-row-action], .row-action-popup, .pagination'
+  ));
+
+  const openBillingRowDetails = (event, bill, rowIdx) => {
+    if (isInteractiveRowTarget(event.target)) return;
+    event.preventDefault();
+    openBillingViewMode(bill, rowIdx);
+  };
+
   /* ── Auto-open invoice from BillingForm ── */
   useEffect(() => {
     if (location.state?.newBill) { setInvoiceBill(location.state.newBill); window.history.replaceState({}, ''); }
@@ -512,15 +539,17 @@ const BillingList = () => {
     return () => clearTimeout(t);
   }, [search]);
   useEffect(() => {
-    setPage(1);
-    setBillings([]);
-    setKbRow(-1);
+    const previousSize = previousPageSizeRef.current;
+    if (previousSize !== pageSize) {
+      setPage(currentPage => Math.floor(((currentPage - 1) * previousSize) / pageSize) + 1);
+      previousPageSizeRef.current = pageSize;
+    }
   }, [pageSize]);
 
   /* ── Date filter params — Change Period (from/to) or Change Date (single day) ── */
   const getDateParams = () => {
-    if (dateFilterMode === 'date') {
-      return selectedDate ? { date_from: selectedDate, date_to: selectedDate } : {};
+    if (dateFilterMode === 'single') {
+      return dateFrom ? { date_from: dateFrom, date_to: dateFrom } : {};
     }
     const params = {};
     if (dateFrom) params.date_from = dateFrom;
@@ -564,7 +593,7 @@ const BillingList = () => {
     } finally {
       if (seq === fetchSeqRef.current) setLoading(false);
     }
-  }, [page, pageSize, deb, dateFilterMode, dateFrom, dateTo, selectedDate, dateError]);
+  }, [page, pageSize, deb, dateFilterMode, dateFrom, dateTo, dateError]);
 
   useEffect(() => { if (!dateError) fetchBillings(); }, [fetchBillings, dateError]);
 
@@ -581,13 +610,11 @@ const BillingList = () => {
   const handleDateFilterModeChange = (mode) => {
     setDateFilterMode(mode);
     setDateError('');
-    setPage(1);
-    if (mode === 'period') setSelectedDate('');
-    if (mode === 'date') { setDateFrom(''); setDateTo(''); }
   };
 
   const handleSelectedDateChange = (e) => {
     setSelectedDate(e.target.value);
+    setDateFrom(e.target.value);
     setPage(1);
   };
 
@@ -662,6 +689,7 @@ const BillingList = () => {
 
   /* ── Delete ── */
   const handleDelete = async () => {
+    if (deleting) return;
     const ids = selected.size > 0 ? [...selected] : [delTarget];
     setDeleting(true);
     try {
@@ -704,8 +732,8 @@ const BillingList = () => {
     const blob = new Blob([csv],{type:'text/csv;charset=utf-8;'});
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    const fileDateTag = dateFilterMode === 'date'
-      ? (selectedDate || new Date().toISOString().slice(0,10))
+    const fileDateTag = dateFilterMode === 'single'
+      ? (dateFrom || new Date().toISOString().slice(0,10))
       : (dateFrom ? `${dateFrom}_to_${dateTo||'now'}` : new Date().toISOString().slice(0,10));
     a.href=url; a.download=`sales_${fileDateTag}.csv`;
     document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
@@ -718,8 +746,8 @@ const BillingList = () => {
     const dateStr = new Date().toLocaleString('en-IN',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'});
     const totalAmt = data.reduce((s,b)=>s+parseFloat(b.GrandTotal||0),0);
     const totalPts = data.reduce((s,b)=>s+b.EarnedPoints,0);
-    const dateRangeLabel = dateFilterMode === 'date' && selectedDate
-      ? `Date: ${new Date(selectedDate).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'})}`
+    const dateRangeLabel = dateFilterMode === 'single' && dateFrom
+      ? `Date: ${new Date(dateFrom).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'})}`
       : (dateFrom || dateTo)
         ? `Period: ${dateFrom ? new Date(dateFrom).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}) : '…'} → ${dateTo ? new Date(dateTo).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}) : '…'}`
         : 'All dates';
@@ -806,42 +834,31 @@ td.bold{font-weight:700}td.mono{font-family:'Courier New',monospace;font-size:9p
                 Change Period
               </button>
               <button type="button"
-                className={dateFilterMode === 'date' ? 'active' : ''}
-                onClick={() => handleDateFilterModeChange('date')}>
+                className={dateFilterMode === 'single' ? 'active' : ''}
+                onClick={() => handleDateFilterModeChange('single')}>
                 Change Date
               </button>
             </div>
-            {dateFilterMode === 'period' ? (
-              <div className="period-date-fields sales-report-period-fields">
-                <div className="date-field">
-                  <label htmlFor="sales-from-date">From Date</label>
-                  <div className="date-input-shell">
-                    <input id="sales-from-date" type="date" className="form-control form-control-sm"
-                      value={dateFrom} max={dateTo || undefined} onChange={handleFromDateChange}
-                      title="From date"/>
-                  </div>
-                </div>
-                <div className="date-field">
-                  <label htmlFor="sales-to-date">To Date</label>
-                  <div className="date-input-shell">
-                    <input id="sales-to-date" type="date" className="form-control form-control-sm"
-                      value={dateTo} min={dateFrom || undefined} onChange={handleToDateChange}
-                      title="To date"/>
-                  </div>
+            <div className="period-date-fields sales-report-period-fields sales-date-fields-stable">
+              <div className="date-field sales-date-field">
+                <label htmlFor="sales-from-date">From / Select Date</label>
+                <div className="date-input-shell">
+                  <input id="sales-from-date" type="date" className="form-control form-control-sm sales-date-input"
+                    value={dateFrom} max={dateTo || undefined}
+                    onChange={dateFilterMode === 'single' ? handleSelectedDateChange : handleFromDateChange}
+                    title={dateFilterMode === 'single' ? 'Select date' : 'From date'}/>
                 </div>
               </div>
-            ) : (
-              <div className="single-date-field sales-report-single-date">
-                <div className="date-field">
-                  <label htmlFor="sales-selected-date">Select Date</label>
-                  <div className="date-input-shell">
-                    <input id="sales-selected-date" type="date" className="form-control form-control-sm"
-                      value={selectedDate} onChange={handleSelectedDateChange}
-                      title="Select date"/>
-                  </div>
+              <div className={`date-field sales-date-field${dateFilterMode === 'single' ? ' is-disabled' : ''}`}>
+                <label htmlFor="sales-to-date">To Date</label>
+                <div className="date-input-shell">
+                  <input id="sales-to-date" type="date" className="form-control form-control-sm sales-date-input"
+                    value={dateTo} min={dateFrom || undefined} disabled={dateFilterMode === 'single'}
+                    aria-disabled={dateFilterMode === 'single'} onChange={handleToDateChange}
+                    title="To date"/>
                 </div>
               </div>
-            )}
+            </div>
             {(dateFrom || dateTo || selectedDate) && (
               <button type="button" className="btn btn-outline-secondary btn-sm"
                 onClick={handleClearPeriod}
@@ -928,7 +945,10 @@ td.bold{font-weight:700}td.mono{font-family:'Courier New',monospace;font-size:9p
                           aria-selected={kbRow===idx}
                           onMouseEnter={() => { setHoveredBillId(b.id); setKbRow(idx); setDismissedActionBillId(null); }}
                           onMouseLeave={() => setHoveredBillId(prev => prev === b.id ? null : prev)}
-                          onClick={() => openBillingViewMode(b, idx)}
+                          tabIndex={0}
+                          aria-label={`View bill ${b.BillNo || b.id}`}
+                          onClick={e => openBillingRowDetails(e, b, idx)}
+                          onKeyDown={e => { if (e.key === 'Enter' && !isInteractiveRowTarget(e.target)) openBillingRowDetails(e, b, idx); }}
                           onDoubleClick={() => openBillingEditMode(b, idx)}>
                           <td className="sales-report-col-sno" style={{color:'var(--text-muted)',fontSize:'.76rem',fontVariantNumeric:'tabular-nums',textAlign:'center'}}>
                             {(loadedPage-1)*pageSize+idx+1}
@@ -962,6 +982,42 @@ td.bold{font-weight:700}td.mono{font-family:'Courier New',monospace;font-size:9p
                     })}
                     </>}
               </SplitTable>
+              </div>
+
+              <div className="billing-mobile-section-header">Billing Details</div>
+              <div className="billing-mobile-record-list" aria-label="Billing records">
+                {billings.length === 0 ? (
+                  <div className="billing-mobile-empty">No sales records yet.</div>
+                ) : billings.map(b => {
+                  const billNo = b.BillNo || `#${b.id}`;
+                  const customer = b.CustomerName || b.Particular || '—';
+                  const date = fmt(b.CreatedOn || b.BillDate);
+                  const amount = b.GrandTotal ?? b.Amount ?? 0;
+                  const isOpen = activeBillMenuId === b.id;
+                  return (
+                    <article className={`billing-mobile-record-row${isOpen ? ' is-open' : ''}`} key={b.id}
+                      tabIndex={0} aria-label={`View bill ${billNo}`}
+                      onClick={e => { if (!isInteractiveRowTarget(e.target)) openViewMore(b); }}
+                      onKeyDown={e => { if (e.key === 'Enter' && !isInteractiveRowTarget(e.target)) { e.preventDefault(); openViewMore(b); } }}>
+                      <div className="billing-mobile-record-content">
+                        <span className="billing-mobile-record-title">{billNo}</span>
+                        <span className="billing-mobile-record-meta">{customer} · {date}</span>
+                        <strong className="billing-mobile-record-amount">{fmtAmt(amount)}</strong>
+                      </div>
+                      <div className="billing-mobile-actions">
+                        {isOpen ? (
+                          <div className="billing-mobile-inline-actions">
+                            <button type="button" aria-label="View bill" title="View" onClick={() => { setActiveBillMenuId(null); openViewMore(b); }}><Eye size={15}/></button>
+                            <button type="button" aria-label="Edit bill" title="Edit" onClick={() => { setActiveBillMenuId(null); openBillingEditMode(b, billings.findIndex(item => item.id === b.id)); }}><Pencil size={15}/></button>
+                            {isAdmin && <button type="button" className="danger" aria-label="Delete bill" title="Delete" onClick={() => { setActiveBillMenuId(null); setSelected(new Set()); setDelTarget(b.id); setShowDel(true); }}><Trash2 size={15}/></button>}
+                          </div>
+                        ) : (
+                          <button type="button" className="billing-mobile-menu-button" aria-label={`Actions for ${billNo}`} title="Bill actions" onClick={() => setActiveBillMenuId(b.id)}><MoreVertical size={17}/></button>
+                        )}
+                      </div>
+                    </article>
+                  );
+                })}
               </div>
 
               <div className="sales-report-bottom">
