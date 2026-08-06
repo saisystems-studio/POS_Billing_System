@@ -846,9 +846,9 @@ const CustomerForm = () => {
         </div>
       </div>
       {apiError && <div className="alert alert-warning animate-in"><span>⚠️</span><span>{apiError}</span></div>}
-      <form ref={customerFormRef} data-customer-form="true" className="customer-form-page" onSubmit={e => { e.preventDefault(); e.stopPropagation(); }} noValidate>
-        <div className="card animate-in animate-in-1 professional-customer-form-card" style={{width:'100%',maxWidth:1120,margin:'0 auto 1.25rem'}}>
-          <div className="card-body" style={{padding:'1.125rem 1.5rem'}}>
+      <form ref={customerFormRef} data-customer-form="true" className="customer-form-page professional-form-layout" onSubmit={e => { e.preventDefault(); e.stopPropagation(); }} noValidate>
+        <div className="card animate-in animate-in-1 professional-customer-form-card professional-form-container" style={{width:'100%',maxWidth:1120,margin:'0 auto 1.25rem'}}>
+          <div className="card-body professional-form-content" style={{padding:'1.125rem 1.5rem'}}>
             {/* Header */}
             <div className="customer-section-header" style={{display:'flex',alignItems:'center',justifyContent:'space-between',
               marginBottom:'1rem',paddingBottom:'.75rem',borderBottom:'1px solid var(--divider)'}}>
@@ -1055,7 +1055,7 @@ const CustomerForm = () => {
           </div>
         </div>
 
-        <div className="customer-form-actions animate-in">
+        <div className="customer-form-actions form-actions-bar professional-form-action-footer animate-in">
           {!isReadOnly && <button type="button" className="btn btn-outline-secondary reset-customer-button" onClick={requestReset} disabled={saving}>Reset</button>}
           <button type="button" className="btn btn-outline-secondary cancel-customer-button" onClick={() => goBackAfterCustomerEntry()} disabled={saving}>Cancel</button>
           {!isReadOnly && (
